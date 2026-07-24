@@ -9,6 +9,7 @@ interface Medication {
   userId: number;
   name: string;
   dose: string | null;
+  dosequantity: number;
   form: string;
   type: 'daily' | 'prn';
   timeOfDay: 'morning' | 'night' | null;
@@ -30,6 +31,7 @@ interface DoseLog {
 const emptyForm = {
   name: '',
   dose: '',
+  dosequantity: '1',
   form: 'tablet',
   type: 'daily' as 'daily' | 'prn',
   timeOfDay: 'morning' as 'morning' | 'night',
@@ -169,6 +171,7 @@ export default function Home() {
       userId: CURRENT_USER_ID,
       name: formData.name.trim(),
       dose: formData.dose.trim(),
+      dosequantity: Number(formData.doseQuantity) || 1,
       form: formData.form,
       type: formData.type,
       timeOfDay: formData.type === 'daily' ? formData.timeOfDay : undefined,
@@ -203,6 +206,7 @@ export default function Home() {
     setFormData({
       name: med.name,
       dose: med.dose ?? '',
+      doseQuantity: med.doseQuantity?.toString() ?? '1',
       form: med.form,
       type: med.type,
       timeOfDay: med.timeOfDay ?? 'morning',
@@ -256,10 +260,11 @@ export default function Home() {
     if (status === 'taken') {
       const med = medications.find((m) => m.id === medicationId);
       if (med?.quantityOnHand !== null && med?.quantityOnHand !== undefined && med.quantityOnHand > 0) {
+        const used = med.doseQuantity ?? 1;
         await fetch(`/api/medications/${medicationId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...med, quantityOnHand: med.quantityOnHand - 1 }),
+          body: JSON.stringify({ ...med, quantityOnHand: Math.max(0, med.quantityOnHand - used) }),
         });
       }
     }
@@ -411,6 +416,18 @@ export default function Home() {
                 value={formData.dose}
                 onChange={(e) => updateField('dose', e.target.value)}
                 placeholder="e.g. 500mg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-700">Quantity per dose (e.g. 1, 0.5)</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                value={formData.doseQuantity}
+                onChange={(e) => updateField('doseQuantity', e.target.value)}
               />
             </div>
 

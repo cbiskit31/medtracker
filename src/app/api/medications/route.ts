@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       userId: body.userId,
       name: body.name,
       dose: body.dose,
+      doseQuantity: body.doseQuantity ?? 1,
       form: body.form,
       type: body.type,
       timeOfDay: body.timeOfDay,

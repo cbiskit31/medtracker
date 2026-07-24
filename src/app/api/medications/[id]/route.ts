@@ -14,6 +14,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     data: {
       name: body.name,
       dose: body.dose,
+      doseQuantity: body.doseQuantity ?? 1,
       form: body.form,
       type: body.type,
       timeOfDay: body.timeOfDay,

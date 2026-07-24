@@ -27,6 +27,7 @@ model Medication {
   user               User      @relation(fields: [userId], references: [id])
   name               String
   dose               String?
+  doseQuantity       Float     @default(1)
   form               String
   type               String    // "daily" or "prn"
   timeOfDay          String?   // "morning" or "night"
