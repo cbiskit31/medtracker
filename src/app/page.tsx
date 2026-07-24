@@ -9,7 +9,7 @@ interface Medication {
   userId: number;
   name: string;
   dose: string | null;
-  dosequantity: number;
+  doseQuantity: number;
   form: string;
   type: 'daily' | 'prn';
   timeOfDay: 'morning' | 'night' | null;
@@ -31,7 +31,7 @@ interface DoseLog {
 const emptyForm = {
   name: '',
   dose: '',
-  dosequantity: '1',
+  doseQuantity: '1',
   form: 'tablet',
   type: 'daily' as 'daily' | 'prn',
   timeOfDay: 'morning' as 'morning' | 'night',
@@ -171,7 +171,7 @@ export default function Home() {
       userId: CURRENT_USER_ID,
       name: formData.name.trim(),
       dose: formData.dose.trim(),
-      dosequantity: Number(formData.doseQuantity) || 1,
+      doseQuantity: Number(formData.doseQuantity) || 1,
       form: formData.form,
       type: formData.type,
       timeOfDay: formData.type === 'daily' ? formData.timeOfDay : undefined,
