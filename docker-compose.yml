@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16
+    container_name: medtrack-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medtrack
+      POSTGRES_PASSWORD: medtrack_dev_password
+      POSTGRES_DB: medtrack
+    ports:
+      - "5432:5432"
+    volumes:
+      - medtrack_pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: medtrack-app
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: "postgresql://medtrack:medtrack_dev_password@db:5432/medtrack?schema=public"
+    ports:
+      - "3000:3000"
+
+volumes:
+  medtrack_pgdata:
+    external: true

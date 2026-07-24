@@ -4,7 +4,13 @@
   --background: #ffffff;
   --foreground: #171717;
 }
+body {
+  font-family: var(--font-body), sans-serif;
+}
 
+h1, h2, h3 {
+  font-family: var(--font-heading), sans-serif;
+}
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
