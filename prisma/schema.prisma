@@ -44,11 +44,7 @@ model Medication {
 model DoseLog {
   id            Int        @id @default(autoincrement())
   medicationId  Int
-  medication    Medication @relation(
-    fields: [medicationId],
-    references: [id],
-    onDelete: Cascade
-  )
+  medication    Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
   scheduledFor  DateTime
   status        String     // "taken", "skipped", "snoozed", "pending"  
   actionedAt    DateTime?
