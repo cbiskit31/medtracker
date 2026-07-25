@@ -296,24 +296,17 @@ export default function Home() {
         <p className="text-teal-100 text-sm mt-1">Keeping on top of it, together</p>
       </div>
 
-      <div className="flex gap-1 mb-6 bg-stone-200 rounded-full p-1">
+      {tab === 'today' && (
+        <h2 className="text-center text-lg font-semibold text-slate-700 mb-4">Today</h2>
+      )}
+      {tab === 'manage' && (
         <button
           onClick={() => setTab('today')}
-          className={`flex-1 py-2 rounded-full font-medium text-sm transition-colors ${
-            tab === 'today' ? 'bg-rose-400 text-white shadow-sm' : 'text-slate-600'
-          }`}
+          className="text-sm text-slate-500 mb-4"
         >
-          Today
+          ← Back to Today
         </button>
-        <button
-          onClick={() => setTab('manage')}
-          className={`flex-1 py-2 rounded-full font-medium text-sm transition-colors ${
-            tab === 'manage' ? 'bg-amber-400 text-white shadow-sm' : 'text-slate-600'
-          }`}
-        >
-          Manage
-        </button>
-      </div>
+      )}
 
       {lowStockMeds.length > 0 && (
         <div className="mb-6 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
@@ -337,63 +330,112 @@ export default function Home() {
       {tab === 'today' && medications.filter((m) => m.type === 'daily').length > 0 && (
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
-          <ul className="space-y-2">
-            {medications
-              .filter((m) => m.type === 'daily')
-              .map((med) => {
-                const logsForMed = todaysLogs
-                  .filter((log) => log.medicationId === med.id)
-                  .sort((a, b) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime());
-                const latest = logsForMed[0];
-                const actioned = latest && latest.status !== 'pending';
+          {(['morning', 'afternoon', 'night'] as const).map((period) => {
+            const periodMeds = medications.filter((m) => m.type === 'daily' && m.timeOfDay === period);
+            if (periodMeds.length === 0) return null;
 
-                return (
-                  <li
-                    key={med.id}
-                    className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800`}
-                  >
-                    <p className="font-medium">{med.name}</p>
-                    {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-             {actioned ? (
-                      <span
-                        className={`inline-block text-sm mt-2 px-3 py-1 rounded-full font-medium ${
-                          latest.status === 'taken'
-                            ? 'bg-teal-100 text-teal-700'
-                            : latest.status === 'skipped'
-                            ? 'bg-stone-200 text-stone-600'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}
+            return (
+              <div key={period} className="mb-4">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                  {period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Night'}
+                </h3>
+                <ul className="space-y-2">
+                  {periodMeds.map((med) => {
+                    const logsForMed = todaysLogs
+                      .filter((log) => log.medicationId === med.id)
+                      .sort((a, b) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime());
+                    const latest = logsForMed[0];
+                    const actioned = latest && latest.status !== 'pending';
+
+                    return (
+                      <li
+                        key={med.id}
+                        className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800`}
                       >
-                        {latest.status === 'taken' && 'Taken'}
-                        {latest.status === 'skipped' && 'Skipped'}
-                        {latest.status === 'snoozed' && 'Snoozed (10m)'}
-                      </span>
-                    ) : (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => actionDose(med.id, 'taken')}
-                          className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
-                        >
-                          Taken
-                        </button>
-                        <button
-                          onClick={() => actionDose(med.id, 'skipped')}
-                          className="text-sm bg-stone-400 text-white rounded-full px-4 py-1.5 font-medium"
-                        >
-                          Skipped
-                        </button>
-                        <button
-                          onClick={() => actionDose(med.id, 'snoozed')}
-                          className="text-sm bg-amber-500 text-white rounded-full px-4 py-1.5 font-medium"
-                        >
-                          Snooze 10m
-                        </button>
+                        <p className="font-medium">{med.name}</p>
+                        {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                        {actioned ? (
+                          <span
+                            className={`inline-block text-sm mt-2 px-3 py-1 rounded-full font-medium ${
+                              latest.status === 'taken'
+                                ? 'bg-teal-100 text-teal-700'
+                                : latest.status === 'skipped'
+                                ? 'bg-stone-200 text-stone-600'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {latest.status === 'taken' && 'Taken'}
+                            {latest.status === 'skipped' && 'Skipped'}
+                            {latest.status === 'snoozed' && 'Snoozed (10m)'}
+                          </span>
+                        ) : (
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              onClick={() => actionDose(med.id, 'taken')}
+                              className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
+                            >
+                              Taken
+                            </button>
+                            <button
+                              onClick={() => actionDose(med.id, 'skipped')}
+                              className="text-sm bg-stone-400 text-white rounded-full px-4 py-1.5 font-medium"
+                            >
+                              Skipped
+                            </button>
+                            <button
+                              onClick={() => actionDose(med.id, 'snoozed')}
+                              className="text-sm bg-amber-500 text-white rounded-full px-4 py-1.5 font-medium"
+                            >
+                              Snooze 10m
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+
+          {medications.filter((m) => m.type === 'prn').length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">As Needed (PRN)</h3>
+              <ul className="space-y-2">
+                {medications
+                  .filter((m) => m.type === 'prn')
+                  .map((med) => (
+                    <li
+                      key={med.id}
+                      className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800 flex justify-between items-center`}
+                    >
+                      <div>
+                        <p className="font-medium">{med.name}</p>
+                        {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                        {todaysPrnCounts[med.id] > 0 && (
+                          <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id]}× today</p>
+                        )}
                       </div>
-                    )}
-                  </li>
-                );
-              })}
-          </ul>
+                      <button
+                        onClick={() => actionDose(med.id, 'taken')}
+                        className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
+                      >
+                        Log dose
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex justify-end mt-8">
+            <button
+              onClick={() => setTab('manage')}
+              className="text-xs text-slate-400 border border-stone-300 rounded-full px-3 py-1"
+            >
+              Manage
+            </button>
+          </div>
         </div>
       )}
 
