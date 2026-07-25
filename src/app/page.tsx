@@ -296,13 +296,10 @@ export default function Home() {
         <p className="text-teal-100 text-sm mt-1">Keeping on top of it, together</p>
       </div>
 
-      {tab === 'today' && (
-        <h2 className="text-center text-lg font-semibold text-slate-700 mb-4">Today</h2>
-      )}
       {tab === 'manage' && (
         <button
           onClick={() => setTab('today')}
-          className="text-sm text-slate-500 mb-4"
+          className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
         >
           ← Back to Today
         </button>
@@ -431,7 +428,7 @@ export default function Home() {
           <div className="flex justify-end mt-8">
             <button
               onClick={() => setTab('manage')}
-              className="text-xs text-slate-400 border border-stone-300 rounded-full px-3 py-1"
+              className="text-sm font-medium text-white bg-amber-500 rounded-full px-5 py-2 shadow-sm"
             >
               Manage
             </button>
@@ -632,14 +629,6 @@ export default function Home() {
                             )}
                           </div>
                           <div className="flex gap-2 shrink-0 ml-2">
-                            {section === 'prn' && (
-                              <button
-                                onClick={() => actionDose(med.id, 'taken')}
-                                className="text-sm text-teal-600 font-medium"
-                              >
-                                Log dose
-                              </button>
-                            )}
                             <button onClick={() => startEdit(med)} className="text-sm text-sky-600 font-medium">
                               Edit
                             </button>
