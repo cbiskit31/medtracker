@@ -29,6 +29,7 @@ export default function Home() {
   const [formData, setFormData] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [tab, setTab] = useState<'today' | 'manage'>('today');
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
 
   const medications = useLiveQuery(() => db.medications.toArray(), []) ?? [];
 
@@ -128,6 +129,19 @@ export default function Home() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   }
 
+  function connectGoogle() {
+    // @ts-expect-error - google is loaded globally via the script tag
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
+      callback: (response: { access_token: string }) => {
+        setGoogleToken(response.access_token);
+        console.log('Got Google token:', response.access_token);
+      },
+    });
+    client.requestAccessToken();
+  }
+  
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!formData.name.trim()) return;
@@ -205,6 +219,19 @@ export default function Home() {
         actionedAt: new Date(),
       });
     }
+
+    function connectGoogle() {
+    // @ts-expect-error - google is loaded globally via the script tag
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
+      callback: (response: { access_token: string }) => {
+        setGoogleToken(response.access_token);
+        console.log('Got Google token:', response.access_token);
+      },
+    });
+    client.requestAccessToken();
+   }
 
     if (status === 'taken') {
       const med = await db.medications.get(medicationId);
@@ -374,8 +401,20 @@ export default function Home() {
         </div>
       )}
 
-      {tab === 'manage' && (
+    {tab === 'manage' && (
         <>
+          <div className="mb-4">
+            {googleToken ? (
+              <p className="text-sm text-teal-700 font-medium">✓ Google account connected</p>
+            ) : (
+              <button
+                onClick={connectGoogle}
+                className="text-sm font-medium text-white bg-teal-600 rounded-full px-4 py-2"
+              >
+                Connect Google Account
+              </button>
+            )}
+          </div>
           <form onSubmit={handleSubmit} className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200">
             <div>
               <label className="block text-sm font-medium mb-1 text-slate-700">Medication name</label>
