@@ -174,7 +174,7 @@ export default function Home() {
       },
     };
 
-    await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${googleToken}`,
@@ -182,6 +182,13 @@ export default function Home() {
       },
       body: JSON.stringify(event),
     });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      console.error('Calendar event creation failed:', res.status, errorBody);
+    } else {
+      console.log('Calendar event created successfully');
+    }
   }
 
     const payload = {
