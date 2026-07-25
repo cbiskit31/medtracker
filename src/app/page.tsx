@@ -215,9 +215,9 @@ export default function Home() {
           tag: `med-${med.id}-${currentTime}`,
           data: { medicationId: med.id },
           actions: [
-            { action: 'taken', title: '✅ Taken' },
-            { action: 'skipped', title: '⏭ Skip' },
-            { action: 'snoozed', title: '⏰ Snooze' },
+            { action: 'taken', title: 'Taken' },
+            { action: 'skipped', title: 'Skip' },
+            { action: 'snoozed', title: 'Snooze' },
           ],
         } as NotificationOptions);
 
@@ -304,11 +304,22 @@ export default function Home() {
   }
 
   async function deleteMedication(id: number) {
-    if (!confirm('Delete this medication?')) return;
-    await fetch(`/api/medications/${id}`, { method: 'DELETE' });
-    if (editingId === id) cancelEdit();
-    fetchMedications();
+  if (!confirm('Delete this medication?')) return;
+
+  const res = await fetch(`/api/medications/${id}`, {
+    method: 'DELETE',
+  });
+
+  if (!res.ok) {
+    const error = await res.text();
+    console.error('Delete failed:', error);
+    alert(`Delete failed: ${error}`);
+    return;
   }
+
+  if (editingId === id) cancelEdit();
+  fetchMedications();
+}
 
   async function actionDose(medicationId: number, status: 'taken' | 'skipped' | 'snoozed') {
     const startOfToday = new Date();
