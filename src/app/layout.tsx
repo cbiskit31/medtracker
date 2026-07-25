@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: "MedTracker",
   description: "Medication management for you and your family",
   manifest: "/manifest.json",
+};
+
+export const viewport = {
   themeColor: "#0d9488",
 };
 

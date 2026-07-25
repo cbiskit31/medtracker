@@ -260,9 +260,11 @@ export default function Home() {
         </div>
       )}
 
-      {tab === 'today' && medications.filter((m) => m.type === 'daily').length > 0 && (
+     {tab === 'today' && (
         <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
+          {medications.filter((m) => m.type === 'daily').length > 0 && (
+            <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
+          )}
           {(['morning', 'afternoon', 'night'] as const).map((period) => {
             const periodMeds = medications.filter((m) => m.type === 'daily' && m.timeOfDay === period);
             if (periodMeds.length === 0) return null;
@@ -297,7 +299,7 @@ export default function Home() {
                                 : 'bg-amber-100 text-amber-700'
                             }`}
                           >
-                            {latest.status === 'taken' && 'Taken'}
+                            {latest.status === 'taken' && 'Done'}
                             {latest.status === 'skipped' && 'Skipped'}
                             {latest.status === 'snoozed' && 'Snoozed (10m)'}
                           </span>
