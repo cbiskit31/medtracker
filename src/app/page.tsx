@@ -361,7 +361,7 @@ export default function Home() {
                                 : 'bg-amber-100 text-amber-700'
                             }`}
                           >
-                            {latest.status === 'taken' && 'Taken'}
+                            {latest.status === 'taken' && 'Done'}
                             {latest.status === 'skipped' && 'Skipped'}
                             {latest.status === 'snoozed' && 'Snoozed (10m)'}
                           </span>
