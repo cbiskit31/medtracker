@@ -66,6 +66,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const savedToken = localStorage.getItem('googleToken');
+    const expiresAt = localStorage.getItem('googleTokenExpiresAt');
+    if (savedToken && expiresAt && Date.now() < Number(expiresAt)) {
+      setGoogleToken(savedToken);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
     const handler = (event: MessageEvent) => {
@@ -146,6 +154,36 @@ export default function Home() {
     e.preventDefault();
     if (!formData.name.trim()) return;
 
+    async function createCalendarEvent(med: { name: string; dose: string; reminderTime?: string; notes?: string }) {
+    if (!googleToken || !med.reminderTime) return;
+
+    const [hours, minutes] = med.reminderTime.split(':').map(Number);
+    const startDate = new Date();
+    startDate.setHours(hours, minutes, 0, 0);
+    const endDate = new Date(startDate.getTime() + 15 * 60 * 1000);
+
+    const event = {
+      summary: `Take ${med.name}`,
+      description: `${med.dose ?? ''}${med.notes ? ' — ' + med.notes : ''}`,
+      start: { dateTime: startDate.toISOString() },
+      end: { dateTime: endDate.toISOString() },
+      recurrence: ['RRULE:FREQ=DAILY'],
+      reminders: {
+        useDefault: false,
+        overrides: [{ method: 'popup', minutes: 0 }],
+      },
+    };
+
+    await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${googleToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(event),
+    });
+  }
+
     const payload = {
       name: formData.name.trim(),
       dose: formData.dose.trim(),
@@ -165,6 +203,10 @@ export default function Home() {
       setEditingId(null);
     } else {
       await db.medications.add({ ...payload, createdAt: new Date() });
+    }
+
+    if (payload.type === 'daily') {
+      await createCalendarEvent(payload);
     }
 
     setFormData(emptyForm);
@@ -225,13 +267,15 @@ export default function Home() {
     const client = google.accounts.oauth2.initTokenClient({
       client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
       scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
-      callback: (response: { access_token: string }) => {
+      callback: (response: { access_token: string; expires_in: number }) => {
         setGoogleToken(response.access_token);
-        console.log('Got Google token:', response.access_token);
+        const expiresAt = Date.now() + response.expires_in * 1000;
+        localStorage.setItem('googleToken', response.access_token);
+        localStorage.setItem('googleTokenExpiresAt', expiresAt.toString());
       },
     });
     client.requestAccessToken();
-   }
+  }
 
     if (status === 'taken') {
       const med = await db.medications.get(medicationId);
