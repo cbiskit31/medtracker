@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const CURRENT_USER_ID = 1; // hardcoded for now — real login comes later
 
@@ -52,7 +53,7 @@ function stripeColor(med: Medication) {
 export default function Home() {
   const [formData, setFormData] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [tab, setTab] = useState<'today' | 'manage'>('today');
+  const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today');
   const [medications, setMedications] = useState<Medication[]>([]);
   const [todaysLogs, setTodaysLogs] = useState<DoseLog[]>([]);
 
@@ -85,6 +86,66 @@ export default function Home() {
       (m.repeatsRemaining !== null && m.repeatsRemaining <= 1) ||
       (m.quantityOnHand !== null && m.quantityOnHand <= 5)
   );
+
+  const allLogs = useLiveQuery(() => db.doseLogs.toArray(), []) ?? [];
+
+  function getWeeklyPrnData() {
+    const prnIds = new Set(medications.filter((m) => m.type === 'prn').map((m) => m.id));
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      day.setHours(0, 0, 0, 0);
+      const nextDay = new Date(day);
+      nextDay.setDate(day.getDate() + 1);
+
+      const count = allLogs.filter(
+        (log) =>
+          log.status === 'taken' &&
+          prnIds.has(log.medicationId) &&
+          log.scheduledFor >= day &&
+          log.scheduledFor < nextDay
+      ).length;
+
+      days.push({
+        label: day.toLocaleDateString('en-AU', { weekday: 'short' }),
+        count,
+      });
+    }
+    return days;
+  }
+
+  function getMonthlyPrnData() {
+    const prnIds = new Set(medications.filter((m) => m.type === 'prn').map((m) => m.id));
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const result = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(year, month, d, 0, 0, 0, 0);
+      const nextDay = new Date(year, month, d + 1, 0, 0, 0, 0);
+
+      const count = allLogs.filter(
+        (log) =>
+          log.status === 'taken' &&
+          prnIds.has(log.medicationId) &&
+          log.scheduledFor >= day &&
+          log.scheduledFor < nextDay
+      ).length;
+
+      result.push({ day: d, count });
+    }
+    return result;
+  }
+
+  function heatColor(count: number) {
+    if (count === 0) return 'bg-stone-100';
+    if (count <= 1) return 'bg-amber-200';
+    if (count <= 3) return 'bg-amber-400';
+    return 'bg-amber-600';
+  }
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -297,12 +358,22 @@ export default function Home() {
       </div>
 
       {tab === 'manage' && (
+        <>
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={() => setTab('stats')}
+              className="text-sm font-medium text-white bg-indigo-500 rounded-full px-4 py-2"
+            >
+              Usage Stats
+            </button>
         <button
           onClick={() => setTab('today')}
           className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
         >
           ← Back to Today
         </button>
+        </div>
+        </>
       )}
 
       {lowStockMeds.length > 0 && (
@@ -644,6 +715,55 @@ export default function Home() {
               </div>
             );
           })}
+        </>
+      )}
+
+      {tab === 'stats' && (
+        <>
+          <button
+            onClick={() => setTab('manage')}
+            className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
+          >
+            ← Back to Manage
+          </button>
+
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800">PRN Usage — Last 7 Days</h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={getWeeklyPrnData()}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                <XAxis dataKey="label" stroke="#78716c" fontSize={12} />
+                <YAxis allowDecimals={false} stroke="#78716c" fontSize={12} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800">
+              PRN Usage — {new Date().toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="grid grid-cols-7 gap-1">
+              {getMonthlyPrnData().map(({ day, count }) => (
+                <div
+                  key={day}
+                  className={`aspect-square rounded flex items-center justify-center text-xs font-medium text-slate-700 ${heatColor(count)}`}
+                  title={`${count} dose${count === 1 ? '' : 's'}`}
+                >
+                  {day}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-3 text-xs text-slate-500">
+              <span>Less</span>
+              <div className="w-3 h-3 rounded bg-stone-100" />
+              <div className="w-3 h-3 rounded bg-amber-200" />
+              <div className="w-3 h-3 rounded bg-amber-400" />
+              <div className="w-3 h-3 rounded bg-amber-600" />
+              <span>More</span>
+            </div>
+          </div>
         </>
       )}
     </main>
