@@ -29,8 +29,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   return NextResponse.json(medication);
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const { id } = await params;
-  await prisma.medication.delete({ where: { id: Number(id) } });
+  const medicationId = Number(id);
+
+  await prisma.doseLog.deleteMany({
+    where: { medicationId },
+  });
+
+  await prisma.medication.delete({
+    where: { id: medicationId },
+  });
+
   return NextResponse.json({ success: true });
 }
