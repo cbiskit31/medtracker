@@ -30,7 +30,7 @@ model Medication {
   doseQuantity       Float     @default(1)
   form               String
   type               String    // "daily" or "prn"
-  timeOfDay          String?   // "morning" or "night"
+  timeOfDay          String?   // "morning", "afternoon" or "night"
   reminderTime       String?
   notes              String?
   quantityOnHand     Int?

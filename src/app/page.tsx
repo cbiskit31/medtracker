@@ -12,7 +12,7 @@ interface Medication {
   doseQuantity: number;
   form: string;
   type: 'daily' | 'prn';
-  timeOfDay: 'morning' | 'night' | null;
+  timeOfDay: 'morning' | 'afternoon' | 'night' | null;
   reminderTime: string | null;
   notes: string | null;
   quantityOnHand: number | null;
@@ -34,7 +34,7 @@ const emptyForm = {
   doseQuantity: '1',
   form: 'tablet',
   type: 'daily' as 'daily' | 'prn',
-  timeOfDay: 'morning' as 'morning' | 'night',
+  timeOfDay: 'morning' as 'morning' | 'afternoon' | 'night',
   reminderTime: '08:00',
   notes: '',
   quantityOnHand: '',
@@ -45,6 +45,7 @@ const emptyForm = {
 function stripeColor(med: Medication) {
   if (med.type === 'prn') return 'border-l-amber-400';
   if (med.timeOfDay === 'night') return 'border-l-indigo-400';
+  if (med.timeOfDay === 'afternoon') return 'border-l-orange-400';
   return 'border-l-sky-400';
 }
 
@@ -464,9 +465,10 @@ export default function Home() {
                 <select
                   className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.timeOfDay}
-                  onChange={(e) => updateField('timeOfDay', e.target.value as 'morning' | 'night')}
+                  onChange={(e) => updateField('timeOfDay', e.target.value as 'morning' | 'afternoon' | 'night')}
                 >
                   <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
                   <option value="night">Night</option>
                 </select>
               </div>
