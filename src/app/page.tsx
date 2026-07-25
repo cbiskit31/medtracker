@@ -1,41 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-
-const CURRENT_USER_ID = 1; // hardcoded for now — real login comes later
-
-interface Medication {
-  id: number;
-  userId: number;
-  name: string;
-  dose: string | null;
-  doseQuantity: number;
-  form: string;
-  type: 'daily' | 'prn';
-  timeOfDay: 'morning' | 'afternoon' | 'night' | null;
-  reminderTime: string | null;
-  notes: string | null;
-  quantityOnHand: number | null;
-  quantityPerRefill: number | null;
-  repeatsRemaining: number | null;
-}
-
-interface DoseLog {
-  id: number;
-  medicationId: number;
-  scheduledFor: string;
-  status: 'taken' | 'skipped' | 'snoozed' | 'pending';
-  actionedAt: string | null;
-}
+import { useState, useEffect } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import db, { type Medication } from '@/lib/db';
 
 const emptyForm = {
   name: '',
   dose: '',
-  doseQuantity: '1',
   form: 'tablet',
   type: 'daily' as 'daily' | 'prn',
   timeOfDay: 'morning' as 'morning' | 'afternoon' | 'night',
   reminderTime: '08:00',
+  doseQuantity: '1',
   notes: '',
   quantityOnHand: '',
   quantityPerRefill: '',
@@ -53,25 +29,15 @@ export default function Home() {
   const [formData, setFormData] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [tab, setTab] = useState<'today' | 'manage'>('today');
-  const [medications, setMedications] = useState<Medication[]>([]);
-  const [todaysLogs, setTodaysLogs] = useState<DoseLog[]>([]);
 
-  const fetchMedications = useCallback(async () => {
-    const res = await fetch(`/api/medications?userId=${CURRENT_USER_ID}`);
-    const data = await res.json();
-    setMedications(data);
-  }, []);
+  const medications = useLiveQuery(() => db.medications.toArray(), []) ?? [];
 
-  const fetchTodaysLogs = useCallback(async () => {
-    const res = await fetch(`/api/doselogs?userId=${CURRENT_USER_ID}`);
-    const data = await res.json();
-    setTodaysLogs(data);
-  }, []);
-
-  useEffect(() => {
-    fetchMedications();
-    fetchTodaysLogs();
-  }, [fetchMedications, fetchTodaysLogs]);
+  const todaysLogs = useLiveQuery(async () => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const all = await db.doseLogs.toArray();
+    return all.filter((log) => log.scheduledFor >= startOfToday);
+  }, []) ?? [];
 
   const todaysPrnCounts: Record<number, number> = {};
   for (const log of todaysLogs) {
@@ -82,8 +48,8 @@ export default function Home() {
 
   const lowStockMeds = medications.filter(
     (m) =>
-      (m.repeatsRemaining !== null && m.repeatsRemaining <= 1) ||
-      (m.quantityOnHand !== null && m.quantityOnHand <= 5)
+      (m.repeatsRemaining !== undefined && m.repeatsRemaining <= 1) ||
+      (m.quantityOnHand !== undefined && m.quantityOnHand <= 5)
   );
 
   useEffect(() => {
@@ -115,19 +81,23 @@ export default function Home() {
     const checkReminders = async () => {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
-      const medsRes = await fetch(`/api/medications?userId=${CURRENT_USER_ID}`);
-      const meds: Medication[] = await medsRes.json();
-      const logsRes = await fetch(`/api/doselogs?userId=${CURRENT_USER_ID}`);
-      const logs: DoseLog[] = await logsRes.json();
-
+      const meds = await db.medications.where('type').equals('daily').toArray();
       const now = new Date();
       const currentTime = now.toTimeString().slice(0, 5);
 
-      for (const med of meds) {
-        if (med.type !== 'daily') continue;
-        if (!med.reminderTime || med.reminderTime !== currentTime) continue;
+      const startOfToday = new Date(now);
+      startOfToday.setHours(0, 0, 0, 0);
 
-        const alreadyLogged = logs.some((log) => log.medicationId === med.id);
+      for (const med of meds) {
+        if (!med.reminderTime || med.reminderTime !== currentTime) continue;
+        if (med.id === undefined) continue;
+
+        const alreadyLogged = await db.doseLogs
+          .where('medicationId')
+          .equals(med.id)
+          .and((log) => log.scheduledFor >= startOfToday)
+          .first();
+
         if (alreadyLogged) continue;
 
         const registration = await navigator.serviceWorker.ready;
@@ -136,29 +106,23 @@ export default function Home() {
           tag: `med-${med.id}-${currentTime}`,
           data: { medicationId: med.id },
           actions: [
-            { action: 'taken', title: '✅ Taken' },
-            { action: 'skipped', title: '⏭ Skip' },
-            { action: 'snoozed', title: '⏰ Snooze' },
+            { action: 'taken', title: 'Taken' },
+            { action: 'skipped', title: 'Skip' },
+            { action: 'snoozed', title: 'Snooze' },
           ],
         } as NotificationOptions);
 
-        await fetch('/api/doselogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            medicationId: med.id,
-            scheduledFor: now.toISOString(),
-            status: 'pending',
-          }),
+        await db.doseLogs.add({
+          medicationId: med.id,
+          scheduledFor: now,
+          status: 'pending',
         });
-
-        fetchTodaysLogs();
       }
     };
 
     const interval = setInterval(checkReminders, 30000);
     return () => clearInterval(interval);
-  }, [fetchTodaysLogs]);
+  }, []);
 
   function updateField(field: keyof typeof emptyForm, value: string) {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -169,14 +133,13 @@ export default function Home() {
     if (!formData.name.trim()) return;
 
     const payload = {
-      userId: CURRENT_USER_ID,
       name: formData.name.trim(),
       dose: formData.dose.trim(),
-      doseQuantity: Number(formData.doseQuantity) || 1,
       form: formData.form,
       type: formData.type,
       timeOfDay: formData.type === 'daily' ? formData.timeOfDay : undefined,
       reminderTime: formData.type === 'daily' ? formData.reminderTime : undefined,
+      doseQuantity: Number(formData.doseQuantity) || 1,
       notes: formData.notes.trim() || undefined,
       quantityOnHand: formData.quantityOnHand ? Number(formData.quantityOnHand) : undefined,
       quantityPerRefill: formData.quantityPerRefill ? Number(formData.quantityPerRefill) : undefined,
@@ -184,34 +147,25 @@ export default function Home() {
     };
 
     if (editingId !== null) {
-      await fetch(`/api/medications/${editingId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await db.medications.update(editingId, payload);
       setEditingId(null);
     } else {
-      await fetch('/api/medications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await db.medications.add({ ...payload, createdAt: new Date() });
     }
 
     setFormData(emptyForm);
-    fetchMedications();
   }
 
   function startEdit(med: Medication) {
-    setEditingId(med.id);
+    setEditingId(med.id ?? null);
     setFormData({
       name: med.name,
-      dose: med.dose ?? '',
-      doseQuantity: med.doseQuantity?.toString() ?? '1',
+      dose: med.dose,
       form: med.form,
       type: med.type,
       timeOfDay: med.timeOfDay ?? 'morning',
       reminderTime: med.reminderTime ?? '08:00',
+      doseQuantity: med.doseQuantity?.toString() ?? '1',
       notes: med.notes ?? '',
       quantityOnHand: med.quantityOnHand?.toString() ?? '',
       quantityPerRefill: med.quantityPerRefill?.toString() ?? '',
@@ -224,69 +178,51 @@ export default function Home() {
     setFormData(emptyForm);
   }
 
-  async function deleteMedication(id: number) {
+  async function deleteMedication(id?: number) {
+    if (id === undefined) return;
     if (!confirm('Delete this medication?')) return;
-    await fetch(`/api/medications/${id}`, { method: 'DELETE' });
+    await db.medications.delete(id);
     if (editingId === id) cancelEdit();
-    fetchMedications();
   }
 
   async function actionDose(medicationId: number, status: 'taken' | 'skipped' | 'snoozed') {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const existing = todaysLogs.find(
-      (log) => log.medicationId === medicationId && log.status === 'pending'
-    );
+    const existing = await db.doseLogs
+      .where('medicationId')
+      .equals(medicationId)
+      .and((log) => log.scheduledFor >= startOfToday && log.status === 'pending')
+      .first();
 
-    if (existing) {
-      await fetch(`/api/doselogs/${existing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, actionedAt: new Date().toISOString() }),
-      });
+    if (existing?.id !== undefined) {
+      await db.doseLogs.update(existing.id, { status, actionedAt: new Date() });
     } else {
-      await fetch('/api/doselogs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          medicationId,
-          scheduledFor: new Date().toISOString(),
-          status,
-          actionedAt: new Date().toISOString(),
-        }),
+      await db.doseLogs.add({
+        medicationId,
+        scheduledFor: new Date(),
+        status,
+        actionedAt: new Date(),
       });
     }
 
     if (status === 'taken') {
-      const med = medications.find((m) => m.id === medicationId);
-      if (med?.quantityOnHand !== null && med?.quantityOnHand !== undefined && med.quantityOnHand > 0) {
+      const med = await db.medications.get(medicationId);
+      if (med?.quantityOnHand !== undefined && med.quantityOnHand > 0) {
         const used = med.doseQuantity ?? 1;
-        await fetch(`/api/medications/${medicationId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...med, quantityOnHand: Math.max(0, med.quantityOnHand - used) }),
-        });
+        await db.medications.update(medicationId, { quantityOnHand: Math.max(0, med.quantityOnHand - used) });
       }
     }
 
     if (status === 'snoozed') {
       setTimeout(async () => {
-        await fetch('/api/doselogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            medicationId,
-            scheduledFor: new Date().toISOString(),
-            status: 'pending',
-          }),
+        await db.doseLogs.add({
+          medicationId,
+          scheduledFor: new Date(),
+          status: 'pending',
         });
-        fetchTodaysLogs();
       }, 10 * 60 * 1000);
     }
-
-    fetchMedications();
-    fetchTodaysLogs();
   }
 
   return (
@@ -312,10 +248,10 @@ export default function Home() {
             {lowStockMeds.map((med) => (
               <li key={med.id}>
                 <span className="font-medium">{med.name}</span>
-                {med.repeatsRemaining !== null && med.repeatsRemaining <= 1 && (
+                {med.repeatsRemaining !== undefined && med.repeatsRemaining <= 1 && (
                   <span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left</span>
                 )}
-                {med.quantityOnHand !== null && med.quantityOnHand <= 5 && (
+                {med.quantityOnHand !== undefined && med.quantityOnHand <= 5 && (
                   <span> — {med.quantityOnHand} on hand</span>
                 )}
               </li>
@@ -340,7 +276,7 @@ export default function Home() {
                   {periodMeds.map((med) => {
                     const logsForMed = todaysLogs
                       .filter((log) => log.medicationId === med.id)
-                      .sort((a, b) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime());
+                      .sort((a, b) => b.scheduledFor.getTime() - a.scheduledFor.getTime());
                     const latest = logsForMed[0];
                     const actioned = latest && latest.status !== 'pending';
 
@@ -368,19 +304,19 @@ export default function Home() {
                         ) : (
                           <div className="flex gap-2 mt-3">
                             <button
-                              onClick={() => actionDose(med.id, 'taken')}
+                              onClick={() => actionDose(med.id!, 'taken')}
                               className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
                             >
                               Taken
                             </button>
                             <button
-                              onClick={() => actionDose(med.id, 'skipped')}
+                              onClick={() => actionDose(med.id!, 'skipped')}
                               className="text-sm bg-stone-400 text-white rounded-full px-4 py-1.5 font-medium"
                             >
                               Skipped
                             </button>
                             <button
-                              onClick={() => actionDose(med.id, 'snoozed')}
+                              onClick={() => actionDose(med.id!, 'snoozed')}
                               className="text-sm bg-amber-500 text-white rounded-full px-4 py-1.5 font-medium"
                             >
                               Snooze 10m
@@ -409,12 +345,12 @@ export default function Home() {
                       <div>
                         <p className="font-medium">{med.name}</p>
                         {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-                        {todaysPrnCounts[med.id] > 0 && (
-                          <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id]}× today</p>
+                        {todaysPrnCounts[med.id!] > 0 && (
+                          <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id!]}× today</p>
                         )}
                       </div>
                       <button
-                        onClick={() => actionDose(med.id, 'taken')}
+                        onClick={() => actionDose(med.id!, 'taken')}
                         className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
                       >
                         Log dose
@@ -428,7 +364,7 @@ export default function Home() {
           <div className="flex justify-end mt-8">
             <button
               onClick={() => setTab('manage')}
-              className="text-sm font-medium text-white bg-amber-500 rounded-full px-5 py-2 shadow-sm"
+              className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
             >
               Manage
             </button>
@@ -596,8 +532,8 @@ export default function Home() {
                 </h2>
                 <ul className="space-y-2">
                   {list.map((med) => {
-                    const lowRepeats = med.repeatsRemaining !== null && med.repeatsRemaining <= 1;
-                    const lowQty = med.quantityOnHand !== null && med.quantityOnHand <= 5;
+                    const lowRepeats = med.repeatsRemaining !== undefined && med.repeatsRemaining <= 1;
+                    const lowQty = med.quantityOnHand !== undefined && med.quantityOnHand <= 5;
                     return (
                       <li
                         key={med.id}
@@ -610,19 +546,22 @@ export default function Home() {
                             <span className="font-medium">{med.name}</span>
                             {med.dose && <span className="text-slate-500"> — {med.dose}</span>}
                             <span className="text-slate-400 text-sm"> ({med.form})</span>
-                            {section === 'prn' && todaysPrnCounts[med.id] > 0 && (
-                              <span className="text-slate-500 text-sm"> — taken {todaysPrnCounts[med.id]}× today</span>
+                            {section === 'prn' && todaysPrnCounts[med.id!] > 0 && (
+                              <span className="text-slate-500 text-sm"> — taken {todaysPrnCounts[med.id!]}× today</span>
                             )}
                             {med.timeOfDay && (
-                              <span className="text-slate-400 text-sm"> · {med.timeOfDay === 'morning' ? 'Morning' : 'Night'}</span>
+                              <span className="text-slate-400 text-sm">
+                                {' '}
+                                · {med.timeOfDay === 'morning' ? 'Morning' : med.timeOfDay === 'afternoon' ? 'Afternoon' : 'Night'}
+                              </span>
                             )}
                             {med.notes && <p className="text-sm text-slate-500 mt-1">{med.notes}</p>}
-                            {(med.quantityOnHand !== null || med.quantityPerRefill !== null) && (
+                            {(med.quantityOnHand !== undefined || med.quantityPerRefill !== undefined) && (
                               <p className="text-sm text-slate-500">
                                 On hand: {med.quantityOnHand ?? '—'} · Per refill: {med.quantityPerRefill ?? '—'}
                               </p>
                             )}
-                            {med.repeatsRemaining !== null && (
+                            {med.repeatsRemaining !== undefined && (
                               <p className={`text-sm ${lowRepeats ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
                                 {lowRepeats ? '⚠ ' : ''}Repeats remaining: {med.repeatsRemaining}
                               </p>

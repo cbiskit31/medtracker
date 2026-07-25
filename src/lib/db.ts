@@ -4,10 +4,11 @@ export interface Medication {
   id?: number;
   name: string;
   dose: string;
+  form: string;
   type: 'daily' | 'prn';
-  timeOfDay?: 'morning' | 'night';
-  reminderTime?: string; // "HH:MM" 24hr format
-  form: string; // e.g. "tablet", "capsule", "liquid"
+  timeOfDay?: 'morning' | 'afternoon' | 'night';
+  reminderTime?: string;
+  doseQuantity?: number;
   notes?: string;
   quantityOnHand?: number;
   quantityPerRefill?: number;
