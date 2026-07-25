@@ -428,7 +428,7 @@ export default function Home() {
           <div className="flex justify-end mt-8">
             <button
               onClick={() => setTab('manage')}
-              className="text-sm font-medium text-white bg-amber-500 rounded-full px-5 py-2 shadow-sm"
+              className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
             >
               Manage
             </button>
