@@ -87,7 +87,13 @@ export default function Home() {
       (m.quantityOnHand !== null && m.quantityOnHand <= 5)
   );
 
-  const allLogs = useLiveQuery(() => db.doseLogs.toArray(), []) ?? [];
+  const [allLogs, setAllLogs] = useState<DoseLog[]>([]);
+
+  const fetchAllLogs = useCallback(async () => {
+  const res = await fetch(`/api/doselogs?userId=${CURRENT_USER_ID}&all=true`);
+  const data = await res.json();
+  setAllLogs(data);
+  }, []);
 
   function getWeeklyPrnData() {
     const prnIds = new Set(medications.filter((m) => m.type === 'prn').map((m) => m.id));
@@ -99,13 +105,16 @@ export default function Home() {
       const nextDay = new Date(day);
       nextDay.setDate(day.getDate() + 1);
 
-      const count = allLogs.filter(
-        (log) =>
-          log.status === 'taken' &&
-          prnIds.has(log.medicationId) &&
-          log.scheduledFor >= day &&
-          log.scheduledFor < nextDay
-      ).length;
+    const count = allLogs.filter((log) => {
+      const scheduled = new Date(log.scheduledFor);
+
+      return (
+     log.status === 'taken' &&
+      prnIds.has(log.medicationId) &&
+      scheduled >= day &&
+     scheduled < nextDay
+      );
+    }).length;
 
       days.push({
         label: day.toLocaleDateString('en-AU', { weekday: 'short' }),
@@ -127,13 +136,16 @@ export default function Home() {
       const day = new Date(year, month, d, 0, 0, 0, 0);
       const nextDay = new Date(year, month, d + 1, 0, 0, 0, 0);
 
-      const count = allLogs.filter(
-        (log) =>
-          log.status === 'taken' &&
-          prnIds.has(log.medicationId) &&
-          log.scheduledFor >= day &&
-          log.scheduledFor < nextDay
-      ).length;
+      const count = allLogs.filter((log) => {
+          const scheduled = new Date(log.scheduledFor);
+
+          return (
+           log.status === 'taken' &&
+           prnIds.has(log.medicationId) &&
+           scheduled >= day &&
+           scheduled < nextDay
+         );
+          }).length;
 
       result.push({ day: d, count });
     }
@@ -171,6 +183,12 @@ export default function Home() {
     navigator.serviceWorker.addEventListener('message', handler);
     return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, []);
+
+    useEffect(() => {
+      fetchMedications();
+      fetchTodaysLogs();
+      fetchAllLogs();
+  }, [fetchMedications, fetchTodaysLogs, fetchAllLogs]);
 
   useEffect(() => {
     const checkReminders = async () => {
