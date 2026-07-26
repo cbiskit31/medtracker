@@ -56,6 +56,9 @@ export default function Home() {
   const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today');
   const [medications, setMedications] = useState<Medication[]>([]);
   const [todaysLogs, setTodaysLogs] = useState<DoseLog[]>([]);
+  const [showAddMedication, setShowAddMedication] = useState(false);
+
+  const [userRole, setUserRole] = useState<'user' | 'manager' | ''>('');
 
   const fetchMedications = useCallback(async () => {
     const res = await fetch(`/api/medications?userId=${CURRENT_USER_ID}`);
@@ -69,10 +72,21 @@ export default function Home() {
     setTodaysLogs(data);
   }, []);
 
+
+  const fetchCurrentUser = useCallback(async () => {
+    const res = await fetch(`/api/users/${CURRENT_USER_ID}`);
+    const data = await res.json();
+    setUserRole(data.role);
+  }, []);
+
   useEffect(() => {
+    fetchCurrentUser();
     fetchMedications();
     fetchTodaysLogs();
-  }, [fetchMedications, fetchTodaysLogs]);
+  }, [fetchCurrentUser, fetchMedications, fetchTodaysLogs]);
+
+  setUserRole(data.role);
+  }, []);
 
   const todaysPrnCounts: Record<number, number> = {};
   for (const log of todaysLogs) {
@@ -282,7 +296,8 @@ export default function Home() {
   }
 
   function startEdit(med: Medication) {
-    setEditingId(med.id);
+  setShowAddMedication(true);
+  setEditingId(med.id);
     setFormData({
       name: med.name,
       dose: med.dose ?? '',
@@ -299,9 +314,10 @@ export default function Home() {
   }
 
   function cancelEdit() {
-    setEditingId(null);
-    setFormData(emptyForm);
-  }
+  setEditingId(null);
+  setFormData(emptyForm);
+  setShowAddMedication(false);
+}
 
   async function deleteMedication(id: number) {
   if (!confirm('Delete this medication?')) return;
@@ -387,23 +403,32 @@ export default function Home() {
       </div>
 
       {tab === 'manage' && (
-        <>
-          <div className="mb-4 flex justify-end">
-            <button
-              onClick={() => setTab('stats')}
-              className="text-sm font-medium text-white bg-indigo-500 rounded-full px-4 py-2"
-            >
-              Usage Stats
-            </button>
-        <button
-          onClick={() => setTab('today')}
-          className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
-        >
-          ← Back to Today
-        </button>
-        </div>
-        </>
-      )}
+  <>
+    <div className="mb-4 flex justify-between items-center">
+      <button
+        onClick={() => setTab('today')}
+        className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2"
+      >
+        ← Back to Today
+      </button>
+
+      <button
+        onClick={() => setTab('stats')}
+        className="text-sm font-medium text-white bg-indigo-500 rounded-full px-4 py-2"
+      >
+        Usage Stats
+      </button>
+    </div>
+
+    <button
+      onClick={() => setShowAddMedication(!showAddMedication)}
+      className="text-sm font-medium text-white bg-emerald-500 rounded-full px-4 py-2 mb-4"
+    >
+      {showAddMedication ? 'Cancel' : '+ Add Medication'}
+    </button>
+  </>
+   )}
+      
 
       {lowStockMeds.length > 0 && (
         <div className="mb-6 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
@@ -492,8 +517,8 @@ export default function Home() {
                   })}
                 </ul>
               </div>
-            );
-          })}
+               );
+              })}
 
           {medications.filter((m) => m.type === 'prn').length > 0 && (
             <div className="mb-4">
@@ -526,19 +551,24 @@ export default function Home() {
           )}
 
           <div className="flex justify-end mt-8">
-            <button
-              onClick={() => setTab('manage')}
-              className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
-            >
-              Manage
-            </button>
+            {userRole === 'manager' && (
+              <button
+                onClick={() => setTab('manage')}
+                className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
+              >
+                Manage
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {tab === 'manage' && (
+      {tab === 'manage' && userRole === 'manager' && (
         <>
-          <form onSubmit={handleSubmit} className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200">
+            {showAddMedication && (
+              <form onSubmit={handleSubmit}
+              className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200"
+              >
             <div>
               <label className="block text-sm font-medium mb-1 text-slate-700">Medication name</label>
               <input
@@ -646,6 +676,7 @@ export default function Home() {
                   onChange={(e) => updateField('quantityOnHand', e.target.value)}
                 />
               </div>
+              
               <div>
                 <label className="block text-sm font-medium mb-1 text-slate-700">Qty per refill</label>
                 <input
@@ -683,8 +714,9 @@ export default function Home() {
                   Cancel
                 </button>
               )}
-            </div>
+            </div> 
           </form>
+          )}
 
           {['daily', 'prn'].map((section) => {
             const list = medications.filter((m) => m.type === section);
@@ -714,7 +746,10 @@ export default function Home() {
                               <span className="text-slate-500 text-sm"> — taken {todaysPrnCounts[med.id]}× today</span>
                             )}
                             {med.timeOfDay && (
-                              <span className="text-slate-400 text-sm"> · {med.timeOfDay === 'morning' ? 'Morning' : 'Night'}</span>
+                              <span className="text-slate-400 text-sm">
+                                {' '}
+                                · {med.timeOfDay === 'morning' ? 'Morning' : med.timeOfDay === 'afternoon' ? 'Afternoon' : 'Night'}
+                              </span>
                             )}
                             {med.notes && <p className="text-sm text-slate-500 mt-1">{med.notes}</p>}
                             {(med.quantityOnHand !== null || med.quantityPerRefill !== null) && (
@@ -747,6 +782,7 @@ export default function Home() {
         </>
       )}
 
+
       {tab === 'stats' && (
         <>
           <button
@@ -755,7 +791,6 @@ export default function Home() {
           >
             ← Back to Manage
           </button>
-
           <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
             <h2 className="text-lg font-semibold mb-3 text-slate-800">PRN Usage — Last 7 Days</h2>
             <ResponsiveContainer width="100%" height={200}>
