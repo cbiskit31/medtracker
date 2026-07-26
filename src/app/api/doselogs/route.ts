@@ -27,3 +27,23 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(logs);
 }
+
+
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+
+  const log = await prisma.doseLog.create({
+    data: {
+      medicationId: body.medicationId,
+      scheduledFor: body.scheduledFor
+        ? new Date(body.scheduledFor)
+        : new Date(),
+      status: body.status,
+      actionedAt: body.actionedAt
+        ? new Date(body.actionedAt)
+        : undefined,
+    },
+  });
+
+  return NextResponse.json(log);
+}
