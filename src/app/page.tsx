@@ -85,9 +85,6 @@ export default function Home() {
     fetchTodaysLogs();
   }, [fetchCurrentUser, fetchMedications, fetchTodaysLogs]);
 
-  setUserRole(data.role);
-  }, []);
-
   const todaysPrnCounts: Record<number, number> = {};
   for (const log of todaysLogs) {
     if (log.status === 'taken') {
