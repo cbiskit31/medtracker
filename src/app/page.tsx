@@ -134,10 +134,12 @@ export default function Home() {
   }
 
   const lowStockMeds = medications.filter(
-    (m) =>
-      (m.repeatsRemaining !== null && m.repeatsRemaining <= 1) ||
-      (m.quantityOnHand !== null && m.quantityOnHand <= 5)
-  );
+  (m) => m.quantityOnHand !== null && m.quantityOnHand <= 5
+);
+
+const lowRepeatMeds = medications.filter(
+  (m) => m.repeatsRemaining !== null && m.repeatsRemaining <= 1
+);
 
   // ----- Stats -----
   function getWeeklyPrnData() {
@@ -521,24 +523,32 @@ export default function Home() {
         </div>
       )}
 
+
       {lowStockMeds.length > 0 && (
-        <div className="mb-6 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
-          <p className="font-semibold mb-1">⚠ Low supply warning</p>
-          <ul className="text-sm space-y-1">
-            {lowStockMeds.map((med) => (
-              <li key={med.id}>
-                <span className="font-medium">{med.name}</span>
-                {med.repeatsRemaining !== null && med.repeatsRemaining <= 1 && (
-                  <span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left</span>
-                )}
-                {med.quantityOnHand !== null && med.quantityOnHand <= 5 && (
-                  <span> — {med.quantityOnHand} on hand</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+  <div className="mb-4 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
+    <p className="font-semibold mb-1">⚠ Low stock warning</p>
+    <ul className="text-sm space-y-1">
+      {lowStockMeds.map((med) => (
+        <li key={med.id}>
+          <span className="font-medium">{med.name}</span> — {med.quantityOnHand} on hand
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
+
+{lowRepeatMeds.length > 0 && (
+  <div className="mb-6 border border-amber-300 bg-amber-50 rounded-xl px-4 py-3 text-amber-800">
+    <p className="font-semibold mb-1">⚠ Low script warning</p>
+    <ul className="text-sm space-y-1">
+      {lowRepeatMeds.map((med) => (
+        <li key={med.id}>
+          <span className="font-medium">{med.name}</span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
 
       {tab === 'today' && (
         <div className="mb-6">
