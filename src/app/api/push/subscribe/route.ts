@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing userId or subscription' }, { status: 400 });
   }
 
-  await prisma.pushSubscription.upsert({
+  await PrismaPg.pushSubscription.upsert({
     where: { endpoint: subscription.endpoint },
     update: {
       userId,
