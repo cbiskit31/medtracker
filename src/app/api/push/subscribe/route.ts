@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
+
 export async function POST(req: NextRequest) {
   const { userId, subscription } = await req.json();
 
@@ -9,7 +12,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing userId or subscription' }, { status: 400 });
   }
 
-  await PrismaPg.pushSubscription.upsert({
+  await prisma.pushSubscription.upsert({
     where: { endpoint: subscription.endpoint },
     update: {
       userId,
