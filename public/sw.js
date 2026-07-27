@@ -6,6 +6,29 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: 'MedTracker', body: event.data ? event.data.text() : 'Reminder' };
+  }
+
+  const title = data.title || 'MedTracker';
+  const options = {
+    body: data.body || 'Reminder',
+    tag: data.tag || 'medtrack-push',
+    data: { medicationId: data.medicationId },
+    actions: data.actions || [
+      { action: 'taken', title: 'Taken' },
+      { action: 'skipped', title: 'Skip' },
+      { action: 'snoozed', title: 'Snooze' },
+    ],
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
