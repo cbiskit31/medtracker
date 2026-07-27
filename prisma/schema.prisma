@@ -13,10 +13,13 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  role      String   // "client", "manager", "guardian"
-  createdAt DateTime @default(now())
+  id                 Int       @id @default(autoincrement())
+  managedByUserId    Int?
+  managedBy          User?     @relation("ManagedUsers", fields: [managedByUserId], references: [id])
+  managedUsers       User[]    @relation("ManagedUsers")
+  name               String
+  role               String    // "client", "manager", "guardian"
+  createdAt          DateTime  @default(now())
 
   medications Medication[]
 }
