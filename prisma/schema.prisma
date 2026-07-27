@@ -22,6 +22,7 @@ model User {
   createdAt          DateTime  @default(now())
 
   medications Medication[]
+  pushSubscriptions PushSubscription[]
 }
 
 model Medication {
@@ -51,4 +52,14 @@ model DoseLog {
   scheduledFor  DateTime
   status        String     // "taken", "skipped", "snoozed", "pending"  
   actionedAt    DateTime?
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
 }
