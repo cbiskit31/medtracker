@@ -13,15 +13,22 @@ services:
       - medtrack_pgdata:/var/lib/postgresql/data
 
   app:
-    build: .
+    build: 
+      context: .
+      args:
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: "BOGYdxFB5DiTbPsfF6afvqcShZEV2avmhHFaKqd9EpNcTd9twHFhzsJmgd2YzSnAV_6vae2tX5mkdfZ58yUpxD4"
     container_name: medtrack-app
     restart: unless-stopped
     depends_on:
       - db
     environment:
       DATABASE_URL: "postgresql://medtrack:medtrack_dev_password@db:5432/medtrack?schema=public"
+      VAPID_PUBLIC_KEY: BOGYdxFB5DiTbPsfF6afvqcShZEV2avmhHFaKqd9EpNcTd9twHFhzsJmgd2YzSnAV_6vae2tX5mkdfZ58yUpxD4
+      VAPID_PRIVATE_KEY: YGMctyjztiSsxwGdibre_l_g4WNOb-rOLTuxmF-8YO8
+      VAPID_SUBJECT: "mailto:cbiskit31@gmail.com"
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: BOGYdxFB5DiTbPsfF6afvqcShZEV2avmhHFaKqd9EpNcTd9twHFhzsJmgd2YzSnAV_6vae2tX5mkdfZ58yUpxD4
     ports:
-      - "3000:3000"
+      - "3001:3000"
 
 volumes:
   medtrack_pgdata:
