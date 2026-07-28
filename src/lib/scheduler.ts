@@ -15,7 +15,7 @@ export async function runReminderCheck() {
     where: { type: 'daily', reminderTime: currentTime },
   });
 
- for (const med of dueMeds) {
+  for (const med of dueMeds) {
     const alreadyLogged = await prisma.doseLog.findFirst({
       where: { medicationId: med.id, scheduledFor: { gte: startOfToday } },
     });
@@ -43,3 +43,29 @@ export async function runReminderCheck() {
       });
     }
   }
+
+  // ----- 2. Alert managers about missed doses -----
+  const cutoff = new Date(now.getTime() - MISSED_DOSE_ALERT_MINUTES * 60 * 1000);
+
+  const overdueLogs = await prisma.doseLog.findMany({
+    where: { status: 'pending', scheduledFor: { lte: cutoff, gte: startOfToday } },
+    include: { medication: true },
+  });
+
+  for (const log of overdueLogs) {
+    const patient = await prisma.user.findUnique({ where: { id: log.medication.userId } });
+    if (!patient) continue;
+
+    const managerId = patient.role === 'manager' ? patient.id : patient.managedByUserId;
+    if (!managerId) continue;
+
+    const managerSubs = await prisma.pushSubscription.findMany({ where: { userId: managerId } });
+    for (const sub of managerSubs) {
+      await sendPushToSubscription(sub, {
+        title: `Missed dose: ${log.medication.name}`,
+        body: `${patient.name} hasn't logged this dose yet`,
+        tag: `missed-${log.id}`,
+      });
+    }
+  }
+}
