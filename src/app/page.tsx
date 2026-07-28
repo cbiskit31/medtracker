@@ -85,6 +85,9 @@ export default function Home() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<'client' | 'manager' | 'guardian'>('client');
 
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editingUserName, setEditingUserName] = useState('');
+
   const isManager = currentUser?.role === 'manager';
   const canAct = currentUser?.role === 'manager' || currentUser?.role === 'client';
   // The person whose medications we actually show: managers see their own, others see who manages them
@@ -317,6 +320,19 @@ const lowRepeatMeds = medications.filter(
     await fetch(`/api/users/${id}`, { method: 'DELETE' });
     setAllUsers((prev) => prev.filter((u) => u.id !== id));
   }
+
+  async function saveUserName(userId: number) {
+  if (!editingUserName.trim()) return;
+
+  await fetch(`/api/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: editingUserName.trim() }),
+  });
+
+  setEditingUserId(null);
+  fetchAllUsers(); // however you currently refresh allUsers after addUser/removeUser — reuse that same call
+}
 
   // ----- Medication CRUD -----
   function updateField(field: keyof typeof emptyForm, value: string) {
@@ -732,14 +748,50 @@ const lowRepeatMeds = medications.filter(
                 .filter((u) => u.id === currentUserId || u.managedByUserId === currentUserId)
                 .map((user) => (
                   <li key={user.id} className="flex justify-between items-center border border-stone-200 rounded-lg px-3 py-2">
-                    <div>
-                      <span className="font-medium text-slate-800">{user.name}</span>
-                      <span className="text-sm text-slate-400 ml-2">({user.role})</span>
-                    </div>
-                   {user.id !== currentUserId && (
-                      <button onClick={() => removeUser(user.id, user.name)} className="text-sm text-rose-500 font-medium">
-                        Remove
-                      </button>
+                    {editingUserId === user.id ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          className="flex-1 border border-stone-300 rounded-lg px-2 py-1 text-slate-800"
+                          value={editingUserName}
+                          onChange={(e) => setEditingUserName(e.target.value)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveUserName(user.id)}
+                          className="text-sm text-teal-600 font-medium"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setEditingUserId(null)}
+                          className="text-sm text-slate-400"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <span className="font-medium text-slate-800">{user.name}</span>
+                          <span className="text-sm text-slate-400 ml-2">({user.role})</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              setEditingUserId(user.id);
+                              setEditingUserName(user.name);
+                            }}
+                            className="text-sm text-sky-600 font-medium"
+                          >
+                            Rename
+                          </button>
+                          {user.id !== currentUserId && (
+                            <button onClick={() => removeUser(user.id, user.name)} className="text-sm text-rose-500 font-medium">
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </li>
                 ))}
