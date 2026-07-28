@@ -303,7 +303,7 @@ const lowRepeatMeds = medications.filter(
     setCurrentUser(null);
   }
 
-  async function addUser() {
+ async function addUser() {
     if (!newUserName.trim()) return;
     const res = await fetch('/api/users', {
       method: 'POST',
@@ -315,24 +315,25 @@ const lowRepeatMeds = medications.filter(
     setNewUserName('');
   }
 
+  async function saveUserName(userId: number) {
+    if (!editingUserName.trim()) return;
+
+    const res = await fetch(`/api/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editingUserName.trim() }),
+    });
+    const updated = await res.json();
+
+    setAllUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
+    setEditingUserId(null);
+  }
+
   async function removeUser(id: number, name: string) {
     if (!confirm(`Remove ${name}?`)) return;
     await fetch(`/api/users/${id}`, { method: 'DELETE' });
     setAllUsers((prev) => prev.filter((u) => u.id !== id));
   }
-
-  async function saveUserName(userId: number) {
-  if (!editingUserName.trim()) return;
-
-  await fetch(`/api/users/${userId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: editingUserName.trim() }),
-  });
-
-  setEditingUserId(null);
-  fetchAllUsers(); // however you currently refresh allUsers after addUser/removeUser — reuse that same call
-}
 
   // ----- Medication CRUD -----
   function updateField(field: keyof typeof emptyForm, value: string) {
