@@ -3,15 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db, { type Medication } from '@/lib/db';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const emptyForm = {
   name: '',
   dose: '',
+  doseQuantity: '1',
   form: 'tablet',
   type: 'daily' as 'daily' | 'prn',
   timeOfDay: 'morning' as 'morning' | 'afternoon' | 'night',
   reminderTime: '08:00',
-  doseQuantity: '1',
   notes: '',
   quantityOnHand: '',
   quantityPerRefill: '',
@@ -25,11 +26,18 @@ function stripeColor(med: Medication) {
   return 'border-l-sky-400';
 }
 
+function heatColor(count: number) {
+  if (count === 0) return 'bg-stone-100';
+  if (count <= 1) return 'bg-amber-200';
+  if (count <= 3) return 'bg-amber-400';
+  return 'bg-amber-600';
+}
+
 export default function Home() {
   const [formData, setFormData] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [tab, setTab] = useState<'today' | 'manage'>('today');
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today');
+  const [showAddMedication, setShowAddMedication] = useState(false);
 
   const medications = useLiveQuery(() => db.medications.toArray(), []) ?? [];
 
@@ -40,6 +48,8 @@ export default function Home() {
     return all.filter((log) => log.scheduledFor >= startOfToday);
   }, []) ?? [];
 
+  const allLogs = useLiveQuery(() => db.doseLogs.toArray(), []) ?? [];
+
   const todaysPrnCounts: Record<number, number> = {};
   for (const log of todaysLogs) {
     if (log.status === 'taken') {
@@ -47,12 +57,51 @@ export default function Home() {
     }
   }
 
-  const lowStockMeds = medications.filter(
-    (m) =>
-      (m.repeatsRemaining !== undefined && m.repeatsRemaining <= 1) ||
-      (m.quantityOnHand !== undefined && m.quantityOnHand <= 5)
-  );
+  const lowStockMeds = medications.filter((m) => m.quantityOnHand !== undefined && m.quantityOnHand <= 5);
+  const lowRepeatMeds = medications.filter((m) => m.repeatsRemaining !== undefined && m.repeatsRemaining <= 1);
 
+  // ----- Stats -----
+  function getWeeklyPrnData() {
+    const prnIds = new Set(medications.filter((m) => m.type === 'prn').map((m) => m.id));
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      day.setHours(0, 0, 0, 0);
+      const nextDay = new Date(day);
+      nextDay.setDate(day.getDate() + 1);
+
+      const count = allLogs.filter(
+        (log) => log.status === 'taken' && prnIds.has(log.medicationId) && log.scheduledFor >= day && log.scheduledFor < nextDay
+      ).length;
+
+      days.push({ label: day.toLocaleDateString('en-AU', { weekday: 'short' }), count });
+    }
+    return days;
+  }
+
+  function getMonthlyPrnData() {
+    const prnIds = new Set(medications.filter((m) => m.type === 'prn').map((m) => m.id));
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const result = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(year, month, d, 0, 0, 0, 0);
+      const nextDay = new Date(year, month, d + 1, 0, 0, 0, 0);
+
+      const count = allLogs.filter(
+        (log) => log.status === 'taken' && prnIds.has(log.medicationId) && log.scheduledFor >= day && log.scheduledFor < nextDay
+      ).length;
+
+      result.push({ day: d, count });
+    }
+    return result;
+  }
+
+  // ----- Notifications -----
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       Notification.requestPermission();
@@ -62,14 +111,6 @@ export default function Home() {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
-    }
-  }, []);
-
-  useEffect(() => {
-    const savedToken = localStorage.getItem('googleToken');
-    const expiresAt = localStorage.getItem('googleTokenExpiresAt');
-    if (savedToken && expiresAt && Date.now() < Number(expiresAt)) {
-      setGoogleToken(savedToken);
     }
   }, []);
 
@@ -121,11 +162,7 @@ export default function Home() {
           ],
         } as NotificationOptions);
 
-        await db.doseLogs.add({
-          medicationId: med.id,
-          scheduledFor: now,
-          status: 'pending',
-        });
+        await db.doseLogs.add({ medicationId: med.id, scheduledFor: now, status: 'pending' });
       }
     };
 
@@ -137,68 +174,18 @@ export default function Home() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   }
 
-  function connectGoogle() {
-    // @ts-expect-error - google is loaded globally via the script tag
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
-      callback: (response: { access_token: string }) => {
-        setGoogleToken(response.access_token);
-        console.log('Got Google token:', response.access_token);
-      },
-    });
-    client.requestAccessToken();
-  }
-  
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!formData.name.trim()) return;
 
-    async function createCalendarEvent(med: { name: string; dose: string; reminderTime?: string; notes?: string }) {
-    if (!googleToken || !med.reminderTime) return;
-
-    const [hours, minutes] = med.reminderTime.split(':').map(Number);
-    const startDate = new Date();
-    startDate.setHours(hours, minutes, 0, 0);
-    const endDate = new Date(startDate.getTime() + 15 * 60 * 1000);
-
-    const event = {
-      summary: `Take ${med.name}`,
-      description: `${med.dose ?? ''}${med.notes ? ' — ' + med.notes : ''}`,
-      start: { dateTime: startDate.toISOString() },
-      end: { dateTime: endDate.toISOString() },
-      recurrence: ['RRULE:FREQ=DAILY'],
-      reminders: {
-        useDefault: false,
-        overrides: [{ method: 'popup', minutes: 0 }],
-      },
-    };
-
-    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${googleToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(event),
-    });
-
-    if (!res.ok) {
-      const errorBody = await res.text();
-      console.error('Calendar event creation failed:', res.status, errorBody);
-    } else {
-      console.log('Calendar event created successfully');
-    }
-  }
-
     const payload = {
       name: formData.name.trim(),
       dose: formData.dose.trim(),
+      doseQuantity: Number(formData.doseQuantity) || 1,
       form: formData.form,
       type: formData.type,
       timeOfDay: formData.type === 'daily' ? formData.timeOfDay : undefined,
       reminderTime: formData.type === 'daily' ? formData.reminderTime : undefined,
-      doseQuantity: Number(formData.doseQuantity) || 1,
       notes: formData.notes.trim() || undefined,
       quantityOnHand: formData.quantityOnHand ? Number(formData.quantityOnHand) : undefined,
       quantityPerRefill: formData.quantityPerRefill ? Number(formData.quantityPerRefill) : undefined,
@@ -212,23 +199,21 @@ export default function Home() {
       await db.medications.add({ ...payload, createdAt: new Date() });
     }
 
-    if (payload.type === 'daily') {
-      await createCalendarEvent(payload);
-    }
-
     setFormData(emptyForm);
+    setShowAddMedication(false);
   }
 
   function startEdit(med: Medication) {
+    setShowAddMedication(true);
     setEditingId(med.id ?? null);
     setFormData({
       name: med.name,
       dose: med.dose,
+      doseQuantity: med.doseQuantity?.toString() ?? '1',
       form: med.form,
       type: med.type,
       timeOfDay: med.timeOfDay ?? 'morning',
       reminderTime: med.reminderTime ?? '08:00',
-      doseQuantity: med.doseQuantity?.toString() ?? '1',
       notes: med.notes ?? '',
       quantityOnHand: med.quantityOnHand?.toString() ?? '',
       quantityPerRefill: med.quantityPerRefill?.toString() ?? '',
@@ -239,6 +224,7 @@ export default function Home() {
   function cancelEdit() {
     setEditingId(null);
     setFormData(emptyForm);
+    setShowAddMedication(false);
   }
 
   async function deleteMedication(id?: number) {
@@ -261,28 +247,8 @@ export default function Home() {
     if (existing?.id !== undefined) {
       await db.doseLogs.update(existing.id, { status, actionedAt: new Date() });
     } else {
-      await db.doseLogs.add({
-        medicationId,
-        scheduledFor: new Date(),
-        status,
-        actionedAt: new Date(),
-      });
+      await db.doseLogs.add({ medicationId, scheduledFor: new Date(), status, actionedAt: new Date() });
     }
-
-    function connectGoogle() {
-    // @ts-expect-error - google is loaded globally via the script tag
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
-      callback: (response: { access_token: string; expires_in: number }) => {
-        setGoogleToken(response.access_token);
-        const expiresAt = Date.now() + response.expires_in * 1000;
-        localStorage.setItem('googleToken', response.access_token);
-        localStorage.setItem('googleTokenExpiresAt', expiresAt.toString());
-      },
-    });
-    client.requestAccessToken();
-  }
 
     if (status === 'taken') {
       const med = await db.medications.get(medicationId);
@@ -294,13 +260,29 @@ export default function Home() {
 
     if (status === 'snoozed') {
       setTimeout(async () => {
-        await db.doseLogs.add({
-          medicationId,
-          scheduledFor: new Date(),
-          status: 'pending',
-        });
+        await db.doseLogs.add({ medicationId, scheduledFor: new Date(), status: 'pending' });
       }, 10 * 60 * 1000);
     }
+  }
+
+  async function undoDose(medicationId: number) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const logsForMed = todaysLogs
+      .filter((log) => log.medicationId === medicationId)
+      .sort((a, b) => b.scheduledFor.getTime() - a.scheduledFor.getTime());
+    const latest = logsForMed[0];
+
+    if (!latest || latest.status !== 'taken' || latest.id === undefined) return;
+
+    const med = await db.medications.get(medicationId);
+    if (med?.quantityOnHand !== undefined) {
+      const used = med.doseQuantity ?? 1;
+      await db.medications.update(medicationId, { quantityOnHand: med.quantityOnHand + used });
+    }
+
+    await db.doseLogs.delete(latest.id);
   }
 
   return (
@@ -310,7 +292,7 @@ export default function Home() {
         <p className="text-teal-100 text-sm mt-1">Keeping on top of it, together</p>
       </div>
 
-      {tab === 'manage' && (
+      {(tab === 'manage' || tab === 'stats') && (
         <button
           onClick={() => setTab('today')}
           className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
@@ -320,128 +302,160 @@ export default function Home() {
       )}
 
       {lowStockMeds.length > 0 && (
-        <div className="mb-6 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
-          <p className="font-semibold mb-1">⚠ Low supply warning</p>
+        <div className="mb-4 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
+          <p className="font-semibold mb-1">⚠ Low stock warning</p>
           <ul className="text-sm space-y-1">
             {lowStockMeds.map((med) => (
               <li key={med.id}>
-                <span className="font-medium">{med.name}</span>
-                {med.repeatsRemaining !== undefined && med.repeatsRemaining <= 1 && (
-                  <span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left</span>
-                )}
-                {med.quantityOnHand !== undefined && med.quantityOnHand <= 5 && (
-                  <span> — {med.quantityOnHand} on hand</span>
-                )}
+                <span className="font-medium">{med.name}</span> — {med.quantityOnHand} on hand
               </li>
             ))}
           </ul>
         </div>
       )}
 
-     {tab === 'today' && (
+      {lowRepeatMeds.length > 0 && (
+        <div className="mb-6 border border-amber-300 bg-amber-50 rounded-xl px-4 py-3 text-amber-800">
+          <p className="font-semibold mb-1">⚠ Low script warning</p>
+          <ul className="text-sm space-y-1">
+            {lowRepeatMeds.map((med) => (
+              <li key={med.id}>
+                <span className="font-medium">{med.name}</span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {tab === 'today' && (
         <div className="mb-6">
-          {medications.filter((m) => m.type === 'daily').length > 0 && (
-            <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
-          )}
-          {(['morning', 'afternoon', 'night'] as const).map((period) => {
-            const periodMeds = medications.filter((m) => m.type === 'daily' && m.timeOfDay === period);
-            if (periodMeds.length === 0) return null;
+          <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
 
-            return (
-              <div key={period} className="mb-4">
-                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                  {period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Night'}
-                </h3>
-                <ul className="space-y-2">
-                  {periodMeds.map((med) => {
-                    const logsForMed = todaysLogs
-                      .filter((log) => log.medicationId === med.id)
-                      .sort((a, b) => b.scheduledFor.getTime() - a.scheduledFor.getTime());
-                    const latest = logsForMed[0];
-                    const actioned = latest && latest.status !== 'pending';
+          {medications.filter((m) => m.type === 'daily').length === 0 && medications.filter((m) => m.type === 'prn').length === 0 ? (
+            <p className="text-sm text-slate-500 mb-4">No medications set up yet.</p>
+          ) : (
+            <>
+              {(['morning', 'afternoon', 'night'] as const).map((period) => {
+                const periodMeds = medications.filter((m) => m.type === 'daily' && m.timeOfDay === period);
+                if (periodMeds.length === 0) return null;
 
-                    return (
-                      <li
-                        key={med.id}
-                        className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800`}
-                      >
-                        <p className="font-medium">{med.name}</p>
-                        {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-                        {actioned ? (
-                          <span
-                            className={`inline-block text-sm mt-2 px-3 py-1 rounded-full font-medium ${
-                              latest.status === 'taken'
-                                ? 'bg-teal-100 text-teal-700'
-                                : latest.status === 'skipped'
-                                ? 'bg-stone-200 text-stone-600'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
+                return (
+                  <div key={period} className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                      {period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Night'}
+                    </h3>
+                    <ul className="space-y-2">
+                      {periodMeds.map((med) => {
+                        const logsForMed = todaysLogs
+                          .filter((log) => log.medicationId === med.id)
+                          .sort((a, b) => b.scheduledFor.getTime() - a.scheduledFor.getTime());
+                        const latest = logsForMed[0];
+                        const actioned = latest && latest.status !== 'pending';
+
+                        return (
+                          <li
+                            key={med.id}
+                            className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800`}
                           >
-                            {latest.status === 'taken' && 'Done'}
-                            {latest.status === 'skipped' && 'Skipped'}
-                            {latest.status === 'snoozed' && 'Snoozed (10m)'}
-                          </span>
-                        ) : (
-                          <div className="flex gap-2 mt-3">
+                            <p className="font-medium">{med.name}</p>
+                            {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                            {actioned ? (
+                              <div className="flex items-center gap-2 mt-2">
+                                <span
+                                  className={`inline-block text-sm px-3 py-1 rounded-full font-medium ${
+                                    latest.status === 'taken'
+                                      ? 'bg-teal-100 text-teal-700'
+                                      : latest.status === 'skipped'
+                                      ? 'bg-stone-200 text-stone-600'
+                                      : 'bg-amber-100 text-amber-700'
+                                  }`}
+                                >
+                                  {latest.status === 'taken' && 'Done'}
+                                  {latest.status === 'skipped' && 'Skipped'}
+                                  {latest.status === 'snoozed' && 'Snoozed (10m)'}
+                                </span>
+                                {latest.status === 'taken' && (
+                                  <button onClick={() => undoDose(med.id!)} className="text-xs text-slate-400 underline">
+                                    Undo
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  onClick={() => actionDose(med.id!, 'taken')}
+                                  className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
+                                >
+                                  Taken
+                                </button>
+                                <button
+                                  onClick={() => actionDose(med.id!, 'skipped')}
+                                  className="text-sm bg-stone-400 text-white rounded-full px-4 py-1.5 font-medium"
+                                >
+                                  Skipped
+                                </button>
+                                <button
+                                  onClick={() => actionDose(med.id!, 'snoozed')}
+                                  className="text-sm bg-amber-500 text-white rounded-full px-4 py-1.5 font-medium"
+                                >
+                                  Snooze 10m
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+
+              {medications.filter((m) => m.type === 'prn').length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">As Needed (PRN)</h3>
+                  <ul className="space-y-2">
+                    {medications
+                      .filter((m) => m.type === 'prn')
+                      .map((med) => (
+                        <li
+                          key={med.id}
+                          className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800 flex justify-between items-center`}
+                        >
+                          <div>
+                            <p className="font-medium">{med.name}</p>
+                            {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                            {todaysPrnCounts[med.id!] > 0 && (
+                              <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id!]}× today</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {todaysPrnCounts[med.id!] > 0 && (
+                              <button onClick={() => undoDose(med.id!)} className="text-xs text-slate-400 underline">
+                                Undo
+                              </button>
+                            )}
                             <button
                               onClick={() => actionDose(med.id!, 'taken')}
                               className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
                             >
-                              Taken
-                            </button>
-                            <button
-                              onClick={() => actionDose(med.id!, 'skipped')}
-                              className="text-sm bg-stone-400 text-white rounded-full px-4 py-1.5 font-medium"
-                            >
-                              Skipped
-                            </button>
-                            <button
-                              onClick={() => actionDose(med.id!, 'snoozed')}
-                              className="text-sm bg-amber-500 text-white rounded-full px-4 py-1.5 font-medium"
-                            >
-                              Snooze 10m
+                              Log dose
                             </button>
                           </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-
-          {medications.filter((m) => m.type === 'prn').length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">As Needed (PRN)</h3>
-              <ul className="space-y-2">
-                {medications
-                  .filter((m) => m.type === 'prn')
-                  .map((med) => (
-                    <li
-                      key={med.id}
-                      className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800 flex justify-between items-center`}
-                    >
-                      <div>
-                        <p className="font-medium">{med.name}</p>
-                        {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-                        {todaysPrnCounts[med.id!] > 0 && (
-                          <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id!]}× today</p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => actionDose(med.id!, 'taken')}
-                        className="text-sm bg-teal-600 text-white rounded-full px-4 py-1.5 font-medium"
-                      >
-                        Log dose
-                      </button>
-                    </li>
-                  ))}
-              </ul>
-            </div>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
 
-          <div className="flex justify-end mt-8">
+          <div className="flex justify-between items-center mt-8">
+            <button
+              onClick={() => setTab('stats')}
+              className="text-sm font-medium text-white bg-indigo-500 rounded-full px-4 py-2"
+            >
+              Usage Stats
+            </button>
             <button
               onClick={() => setTab('manage')}
               className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
@@ -452,167 +466,163 @@ export default function Home() {
         </div>
       )}
 
-    {tab === 'manage' && (
+      {tab === 'manage' && (
         <>
           <div className="mb-4">
-            {googleToken ? (
-              <p className="text-sm text-teal-700 font-medium">✓ Google account connected</p>
-            ) : (
-              <button
-                onClick={connectGoogle}
-                className="text-sm font-medium text-white bg-teal-600 rounded-full px-4 py-2"
-              >
-                Connect Google Account
-              </button>
-            )}
+            <button
+              onClick={() => setShowAddMedication(!showAddMedication)}
+              className="text-sm font-medium text-white bg-emerald-500 rounded-full px-4 py-2"
+            >
+              {showAddMedication ? 'Cancel' : '+ Add Medication'}
+            </button>
           </div>
-          <form onSubmit={handleSubmit} className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200">
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Medication name</label>
-              <input
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.name}
-                onChange={(e) => updateField('name', e.target.value)}
-                placeholder="e.g. Paracetamol"
-              />
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Dose</label>
-              <input
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.dose}
-                onChange={(e) => updateField('dose', e.target.value)}
-                placeholder="e.g. 500mg"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Quantity per dose (e.g. 1, 0.5)</label>
-              <input
-                type="number"
-                step="0.5"
-                min="0.5"
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.doseQuantity}
-                onChange={(e) => updateField('doseQuantity', e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Form</label>
-              <select
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.form}
-                onChange={(e) => updateField('form', e.target.value)}
-              >
-                <option value="tablet">Tablet</option>
-                <option value="capsule">Capsule</option>
-                <option value="liquid">Liquid</option>
-                <option value="injection">Injection</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Schedule type</label>
-              <select
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.type}
-                onChange={(e) => updateField('type', e.target.value as 'daily' | 'prn')}
-              >
-                <option value="daily">Daily</option>
-                <option value="prn">As needed (PRN)</option>
-              </select>
-            </div>
-
-            {formData.type === 'daily' && (
+          {showAddMedication && (
+            <form onSubmit={handleSubmit} className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200">
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Time of day</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Medication name</label>
+                <input
+                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  value={formData.name}
+                  onChange={(e) => updateField('name', e.target.value)}
+                  placeholder="e.g. Paracetamol"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Dose</label>
+                <input
+                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  value={formData.dose}
+                  onChange={(e) => updateField('dose', e.target.value)}
+                  placeholder="e.g. 500mg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Quantity per dose (e.g. 1, 0.5)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  value={formData.doseQuantity}
+                  onChange={(e) => updateField('doseQuantity', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Form</label>
                 <select
                   className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  value={formData.timeOfDay}
-                  onChange={(e) => updateField('timeOfDay', e.target.value as 'morning' | 'afternoon' | 'night')}
+                  value={formData.form}
+                  onChange={(e) => updateField('form', e.target.value)}
                 >
-                  <option value="morning">Morning</option>
-                  <option value="afternoon">Afternoon</option>
-                  <option value="night">Night</option>
+                  <option value="tablet">Tablet</option>
+                  <option value="capsule">Capsule</option>
+                  <option value="liquid">Liquid</option>
+                  <option value="injection">Injection</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
-            )}
 
-            {formData.type === 'daily' && (
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Reminder time</label>
-                <input
-                  type="time"
+                <label className="block text-sm font-medium mb-1 text-slate-700">Schedule type</label>
+                <select
                   className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  value={formData.reminderTime}
-                  onChange={(e) => updateField('reminderTime', e.target.value)}
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Notes</label>
-              <textarea
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.notes}
-                onChange={(e) => updateField('notes', e.target.value)}
-                placeholder="e.g. take with food"
-                rows={2}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Qty on hand</label>
-                <input
-                  type="number"
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  value={formData.quantityOnHand}
-                  onChange={(e) => updateField('quantityOnHand', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Qty per refill</label>
-                <input
-                  type="number"
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  value={formData.quantityPerRefill}
-                  onChange={(e) => updateField('quantityPerRefill', e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-700">Repeats remaining</label>
-              <input
-                type="number"
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={formData.repeatsRemaining}
-                onChange={(e) => updateField('repeatsRemaining', e.target.value)}
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="flex-1 bg-teal-600 text-white rounded-full px-3 py-2 font-medium"
-              >
-                {editingId !== null ? 'Save changes' : 'Add Medication'}
-              </button>
-              {editingId !== null && (
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="px-3 py-2 rounded-full border border-stone-300 text-slate-700"
+                  value={formData.type}
+                  onChange={(e) => updateField('type', e.target.value as 'daily' | 'prn')}
                 >
-                  Cancel
-                </button>
+                  <option value="daily">Daily</option>
+                  <option value="prn">As needed (PRN)</option>
+                </select>
+              </div>
+
+              {formData.type === 'daily' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">Time of day</label>
+                  <select
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={formData.timeOfDay}
+                    onChange={(e) => updateField('timeOfDay', e.target.value as 'morning' | 'afternoon' | 'night')}
+                  >
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="night">Night</option>
+                  </select>
+                </div>
               )}
-            </div>
-          </form>
+
+              {formData.type === 'daily' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">Reminder time</label>
+                  <input
+                    type="time"
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={formData.reminderTime}
+                    onChange={(e) => updateField('reminderTime', e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Notes</label>
+                <textarea
+                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  value={formData.notes}
+                  onChange={(e) => updateField('notes', e.target.value)}
+                  placeholder="e.g. take with food"
+                  rows={2}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">Qty on hand</label>
+                  <input
+                    type="number"
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={formData.quantityOnHand}
+                    onChange={(e) => updateField('quantityOnHand', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">Qty per refill</label>
+                  <input
+                    type="number"
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={formData.quantityPerRefill}
+                    onChange={(e) => updateField('quantityPerRefill', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Repeats remaining</label>
+                <input
+                  type="number"
+                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  value={formData.repeatsRemaining}
+                  onChange={(e) => updateField('repeatsRemaining', e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button type="submit" className="flex-1 bg-teal-600 text-white rounded-full px-3 py-2 font-medium">
+                  {editingId !== null ? 'Save changes' : 'Add Medication'}
+                </button>
+                {editingId !== null && (
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="px-3 py-2 rounded-full border border-stone-300 text-slate-700"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
 
           {['daily', 'prn'].map((section) => {
             const list = medications.filter((m) => m.type === section);
@@ -675,6 +685,48 @@ export default function Home() {
               </div>
             );
           })}
+        </>
+      )}
+
+      {tab === 'stats' && (
+        <>
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800">PRN Usage — Last 7 Days</h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={getWeeklyPrnData()}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                <XAxis dataKey="label" stroke="#78716c" fontSize={12} />
+                <YAxis allowDecimals={false} stroke="#78716c" fontSize={12} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800">
+              PRN Usage — {new Date().toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="grid grid-cols-7 gap-1">
+              {getMonthlyPrnData().map(({ day, count }) => (
+                <div
+                  key={day}
+                  className={`aspect-square rounded flex items-center justify-center text-xs font-medium text-slate-700 ${heatColor(count)}`}
+                  title={`${count} dose${count === 1 ? '' : 's'}`}
+                >
+                  {day}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-3 text-xs text-slate-500">
+              <span>Less</span>
+              <div className="w-3 h-3 rounded bg-stone-100" />
+              <div className="w-3 h-3 rounded bg-amber-200" />
+              <div className="w-3 h-3 rounded bg-amber-400" />
+              <div className="w-3 h-3 rounded bg-amber-600" />
+              <span>More</span>
+            </div>
+          </div>
         </>
       )}
     </main>
