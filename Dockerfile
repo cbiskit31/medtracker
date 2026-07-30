@@ -16,7 +16,9 @@ RUN npm run build
 
 FROM base AS runner
 WORKDIR /app
+RUN apk add --no-cache tzdata
 ENV NODE_ENV=production
+ENV TZ=Australia/Brisbane
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
