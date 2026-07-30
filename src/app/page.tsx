@@ -626,31 +626,33 @@ const lowRepeatMeds = medications.filter(
                           >
                             <p className="font-medium">{med.name}</p>
                             {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-                            {actioned ? (
-                              <div className="flex items-center gap-2 mt-2">
-                                <span
-                                  className={`inline-block text-sm px-3 py-1 rounded-full font-medium ${
-                                    latest.status === 'taken'
-                                      ? 'bg-teal-100 text-teal-700'
-                                      : latest.status === 'skipped'
-                                      ? 'bg-stone-200 text-stone-600'
-                                      : 'bg-amber-100 text-amber-700'
-                                  }`}
-                                >
-                                  {latest.status === 'taken' && 'Done'}
-                                  {latest.status === 'skipped' && 'Skipped'}
-                                  {latest.status === 'snoozed' && 'Snoozed (10m)'}
-                                </span>
-                                {canAct && latest.status === 'taken' && (
-                                  <button
-                                    onClick={() => undoDose(med.id)}
-                                    className="text-xs text-slate-400 underline"
-                                  >
-                                    Undo
-                                  </button>
-                                )}
-                              </div>
-                            ) : canAct ? (
+                              {actioned ? (
+  <div className="flex items-center gap-2 mt-2 flex-wrap">
+    <span
+      className={`inline-block text-sm px-3 py-1 rounded-full font-medium ${
+        latest.status === 'taken'
+          ? 'bg-teal-100 text-teal-700'
+          : latest.status === 'skipped'
+          ? 'bg-stone-200 text-stone-600'
+          : 'bg-amber-100 text-amber-700'
+      }`}
+    >
+      {latest.status === 'taken' && 'Done'}
+      {latest.status === 'skipped' && 'Skipped'}
+      {latest.status === 'snoozed' && 'Snoozed (10m)'}
+    </span>
+    {latest.actionedAt && (
+      <span className="text-xs text-slate-400">
+        at {new Date(latest.actionedAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
+      </span>
+    )}
+    {canAct && latest.status === 'taken' && (
+      <button onClick={() => undoDose(med.id)} className="text-xs text-slate-400 underline">
+        Undo
+      </button>
+    )}
+  </div>
+) : canAct ? (
                               <div className="flex gap-2 mt-3">
                                 <button
                                   onClick={() => actionDose(med.id, 'taken')}
@@ -692,8 +694,15 @@ const lowRepeatMeds = medications.filter(
                           className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800 flex justify-between items-center`}
                         >
                           <div>
-                            <p className="font-medium">{med.name}</p>
-                            {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                            <div className="flex justify-between items-baseline">
+  <p className="font-medium">{med.name}</p>
+  {med.reminderTime && (
+    <p className="text-xs text-slate-400">
+      Scheduled {new Date(`2000-01-01T${med.reminderTime}`).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
+    </p>
+  )}
+</div>
+{med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
                             {todaysPrnCounts[med.id] > 0 && (
                               <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id]}× today</p>
                             )}
