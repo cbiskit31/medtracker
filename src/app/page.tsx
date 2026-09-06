@@ -245,52 +245,7 @@ const lowRepeatMeds = medications.filter(
     return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, []);
 
-  useEffect(() => {
-    const checkReminders = async () => {
-      if (!patientId) return;
-      if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
-      const medsRes = await fetch(`/api/medications?userId=${patientId}`);
-      const meds: Medication[] = await medsRes.json();
-      const logsRes = await fetch(`/api/doselogs?userId=${patientId}`);
-      const logs: DoseLog[] = await logsRes.json();
-
-      const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5);
-
-      for (const med of meds) {
-        if (med.type !== 'daily') continue;
-        if (!med.reminderTime || med.reminderTime !== currentTime) continue;
-
-        const alreadyLogged = logs.some((log) => log.medicationId === med.id);
-        if (alreadyLogged) continue;
-
-        const registration = await navigator.serviceWorker.ready;
-        registration.showNotification(`Time for ${med.name}`, {
-          body: med.dose ? `${med.dose}${med.notes ? ' — ' + med.notes : ''}` : 'Reminder',
-          tag: `med-${med.id}-${currentTime}`,
-          data: { medicationId: med.id },
-          actions: [
-            { action: 'taken', title: 'Taken' },
-            { action: 'skipped', title: 'Skip' },
-            { action: 'snoozed', title: 'Snooze' },
-          ],
-        } as NotificationOptions);
-
-        await fetch('/api/doselogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ medicationId: med.id, scheduledFor: now.toISOString(), status: 'pending' }),
-        });
-
-        fetchTodaysLogs();
-      }
-    };
-
-    const interval = setInterval(checkReminders, 30000);
-    return () => clearInterval(interval);
-  }, [patientId, fetchTodaysLogs]);
-
+ 
   // ----- Login / user management -----
   function selectUser(id: number) {
     localStorage.setItem('currentUserId', id.toString());
@@ -417,29 +372,31 @@ const lowRepeatMeds = medications.filter(
 
   // ----- Dose actions -----
   async function actionDose(medicationId: number, status: 'taken' | 'skipped' | 'snoozed') {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+  const pendingLogs = todaysLogs.filter((log) => log.medicationId === medicationId && log.status === 'pending');
 
-    const existing = todaysLogs.find((log) => log.medicationId === medicationId && log.status === 'pending');
+  if (pendingLogs.length > 0) {
+    await Promise.all(
+      pendingLogs.map((log) =>
+        fetch(`/api/doselogs/${log.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, actionedAt: new Date().toISOString() }),
+        })
+      )
+    );
+  } else {
+    await fetch('/api/doselogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        medicationId,
+        scheduledFor: new Date().toISOString(),
+        status,
+        actionedAt: new Date().toISOString(),
+      }),
+    });
+  }
 
-    if (existing) {
-      await fetch(`/api/doselogs/${existing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, actionedAt: new Date().toISOString() }),
-      });
-    } else {
-      await fetch('/api/doselogs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          medicationId,
-          scheduledFor: new Date().toISOString(),
-          status,
-          actionedAt: new Date().toISOString(),
-        }),
-      });
-    }
 
     if (status === 'taken') {
       const med = medications.find((m) => m.id === medicationId);
