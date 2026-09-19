@@ -90,7 +90,6 @@ export default function Home() {
 
   const isManager = currentUser?.role === 'manager';
   const canAct = currentUser?.role === 'manager' || currentUser?.role === 'client';
-  // The person whose medications we actually show: managers see their own, others see who manages them
   const patientId = currentUser?.role === 'manager' ? currentUser.id : currentUser?.managedByUserId ?? null;
 
   // ----- Core app state -----
@@ -158,13 +157,8 @@ export default function Home() {
     }
   }
 
-  const lowStockMeds = medications.filter(
-  (m) => m.quantityOnHand !== null && m.quantityOnHand <= 5
-);
-
-const lowRepeatMeds = medications.filter(
-  (m) => m.repeatsRemaining !== null && m.repeatsRemaining <= 1
-);
+  const lowStockMeds = medications.filter((m) => m.quantityOnHand !== null && m.quantityOnHand <= 5);
+  const lowRepeatMeds = medications.filter((m) => m.repeatsRemaining !== null && m.repeatsRemaining <= 1);
 
   // ----- Stats -----
   function getWeeklyPrnData() {
@@ -210,13 +204,13 @@ const lowRepeatMeds = medications.filter(
   }
 
   function heatColor(count: number) {
-    if (count === 0) return 'bg-stone-100';
-    if (count <= 1) return 'bg-amber-200';
-    if (count <= 3) return 'bg-amber-400';
-    return 'bg-amber-600';
+    if (count === 0) return 'bg-stone-100 dark:bg-stone-800';
+    if (count <= 1) return 'bg-amber-200 dark:bg-amber-900';
+    if (count <= 3) return 'bg-amber-400 dark:bg-amber-700';
+    return 'bg-amber-600 dark:bg-amber-500';
   }
 
- // ----- Notifications -----
+  // ----- Notifications -----
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       Notification.requestPermission().then((permission) => {
@@ -226,7 +220,6 @@ const lowRepeatMeds = medications.filter(
       });
     }
   }, [currentUser]);
-  
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -245,7 +238,6 @@ const lowRepeatMeds = medications.filter(
     return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, []);
 
- 
   // ----- Login / user management -----
   function selectUser(id: number) {
     localStorage.setItem('currentUserId', id.toString());
@@ -258,7 +250,7 @@ const lowRepeatMeds = medications.filter(
     setCurrentUser(null);
   }
 
- async function addUser() {
+  async function addUser() {
     if (!newUserName.trim()) return;
     const res = await fetch('/api/users', {
       method: 'POST',
@@ -372,31 +364,30 @@ const lowRepeatMeds = medications.filter(
 
   // ----- Dose actions -----
   async function actionDose(medicationId: number, status: 'taken' | 'skipped' | 'snoozed') {
-  const pendingLogs = todaysLogs.filter((log) => log.medicationId === medicationId && log.status === 'pending');
+    const pendingLogs = todaysLogs.filter((log) => log.medicationId === medicationId && log.status === 'pending');
 
-  if (pendingLogs.length > 0) {
-    await Promise.all(
-      pendingLogs.map((log) =>
-        fetch(`/api/doselogs/${log.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status, actionedAt: new Date().toISOString() }),
-        })
-      )
-    );
-  } else {
-    await fetch('/api/doselogs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        medicationId,
-        scheduledFor: new Date().toISOString(),
-        status,
-        actionedAt: new Date().toISOString(),
-      }),
-    });
-  }
-
+    if (pendingLogs.length > 0) {
+      await Promise.all(
+        pendingLogs.map((log) =>
+          fetch(`/api/doselogs/${log.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, actionedAt: new Date().toISOString() }),
+          })
+        )
+      );
+    } else {
+      await fetch('/api/doselogs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          medicationId,
+          scheduledFor: new Date().toISOString(),
+          status,
+          actionedAt: new Date().toISOString(),
+        }),
+      });
+    }
 
     if (status === 'taken') {
       const med = medications.find((m) => m.id === medicationId);
@@ -425,21 +416,24 @@ const lowRepeatMeds = medications.filter(
     fetchTodaysLogs();
   }
 
+  // Undo now handles both 'taken' (restores quantity) and 'skipped' (no quantity change needed)
   async function undoDose(medicationId: number) {
     const latestLog = todaysLogs
       .filter((log) => log.medicationId === medicationId)
       .sort((a, b) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime())[0];
 
-    if (!latestLog || latestLog.status !== 'taken') return;
+    if (!latestLog || (latestLog.status !== 'taken' && latestLog.status !== 'skipped')) return;
 
-    const med = medications.find((m) => m.id === medicationId);
-    if (med?.quantityOnHand !== null && med?.quantityOnHand !== undefined) {
-      const used = med.doseQuantity ?? 1;
-      await fetch(`/api/medications/${medicationId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...med, quantityOnHand: med.quantityOnHand + used }),
-      });
+    if (latestLog.status === 'taken') {
+      const med = medications.find((m) => m.id === medicationId);
+      if (med?.quantityOnHand !== null && med?.quantityOnHand !== undefined) {
+        const used = med.doseQuantity ?? 1;
+        await fetch(`/api/medications/${medicationId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...med, quantityOnHand: med.quantityOnHand + used }),
+        });
+      }
     }
 
     await fetch(`/api/doselogs/${latestLog.id}`, { method: 'DELETE' });
@@ -452,7 +446,7 @@ const lowRepeatMeds = medications.filter(
   // ----- Login screen -----
   if (!currentUserId) {
     return (
-      <main className="max-w-md mx-auto p-6 min-h-screen bg-stone-50 flex flex-col justify-center">
+      <main className="max-w-md mx-auto p-6 min-h-screen bg-stone-50 dark:bg-stone-900 flex flex-col justify-center">
         <div className="mb-6 text-center bg-teal-600 rounded-2xl py-5 shadow-sm border-2 border-teal-700">
           <h1 className="text-3xl font-bold text-white tracking-tight">MedTracker</h1>
           <p className="text-teal-100 text-sm mt-1">Who are you?</p>
@@ -463,20 +457,22 @@ const lowRepeatMeds = medications.filter(
             <li key={user.id}>
               <button
                 onClick={() => selectUser(user.id)}
-                className="w-full text-left bg-white border border-stone-200 rounded-xl px-4 py-3 shadow-sm"
+                className="w-full text-left bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl px-4 py-3 shadow-sm"
               >
-                <span className="font-medium text-slate-800">{user.name}</span>
-                <span className="text-sm text-slate-400 ml-2">({user.role})</span>
+                <span className="font-medium text-slate-800 dark:text-stone-100">{user.name}</span>
+                <span className="text-sm text-slate-400 dark:text-stone-400 ml-2">({user.role})</span>
               </button>
             </li>
           ))}
         </ul>
-   {allUsers.length === 0 && (
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200">
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">Set up your account</h2>
-            <p className="text-xs text-slate-500 mb-3">You'll be the manager — add other people from the Manage screen once you're set up.</p>
+        {allUsers.length === 0 && (
+          <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm p-4 border border-stone-200 dark:border-stone-700">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-stone-200 mb-2">Set up your account</h2>
+            <p className="text-xs text-slate-500 dark:text-stone-400 mb-3">
+              You'll be the manager — add other people from the Manage screen once you're set up.
+            </p>
             <input
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-slate-800"
+              className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 mb-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900"
               placeholder="Your name"
               value={newUserName}
               onChange={(e) => setNewUserName(e.target.value)}
@@ -506,57 +502,55 @@ const lowRepeatMeds = medications.filter(
 
   // ----- Main app -----
   return (
-    <main className="max-w-md mx-auto p-6 min-h-screen bg-stone-50">
+    <main className="max-w-md mx-auto p-6 min-h-screen bg-stone-50 dark:bg-stone-900">
       <div className="mb-6 text-center bg-teal-600 rounded-2xl py-5 shadow-sm border-2 border-teal-700">
         <h1 className="text-3xl font-bold text-white tracking-tight">MedTracker</h1>
         <p className="text-teal-100 text-sm mt-1">Keeping on top of it, together</p>
       </div>
-  
 
       {tab === 'manage' && isManager && (
         <div className="mb-4">
           <button
             onClick={() => setTab('today')}
-            className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2"
+            className="text-sm font-medium text-slate-700 dark:text-stone-300 border border-stone-300 dark:border-stone-600 rounded-full px-4 py-2"
           >
             ← Back to Today
           </button>
         </div>
       )}
 
-
       {lowStockMeds.length > 0 && (
-  <div className="mb-4 border border-rose-300 bg-rose-50 rounded-xl px-4 py-3 text-rose-800">
-    <p className="font-semibold mb-1">⚠ Low stock warning</p>
-    <ul className="text-sm space-y-1">
-      {lowStockMeds.map((med) => (
-        <li key={med.id}>
-          <span className="font-medium">{med.name}</span> — {med.quantityOnHand} on hand
-        </li>
-      ))}
-    </ul>
-  </div>
-)}
+        <div className="mb-4 border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950 rounded-xl px-4 py-3 text-rose-800 dark:text-rose-300">
+          <p className="font-semibold mb-1">⚠ Low stock warning</p>
+          <ul className="text-sm space-y-1">
+            {lowStockMeds.map((med) => (
+              <li key={med.id}>
+                <span className="font-medium">{med.name}</span> — {med.quantityOnHand} on hand
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-{lowRepeatMeds.length > 0 && (
-  <div className="mb-6 border border-amber-300 bg-amber-50 rounded-xl px-4 py-3 text-amber-800">
-    <p className="font-semibold mb-1">⚠ Low script warning</p>
-    <ul className="text-sm space-y-1">
-      {lowRepeatMeds.map((med) => (
-        <li key={med.id}>
-          <span className="font-medium">{med.name}</span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left
-        </li>
-      ))}
-    </ul>
-  </div>
-)}
+      {lowRepeatMeds.length > 0 && (
+        <div className="mb-6 border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 rounded-xl px-4 py-3 text-amber-800 dark:text-amber-300">
+          <p className="font-semibold mb-1">⚠ Low script warning</p>
+          <ul className="text-sm space-y-1">
+            {lowRepeatMeds.map((med) => (
+              <li key={med.id}>
+                <span className="font-medium">{med.name}</span> — {med.repeatsRemaining} repeat{med.repeatsRemaining === 1 ? '' : 's'} left
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {tab === 'today' && (
         <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 text-slate-800">Today</h2>
+          <h2 className="text-lg font-semibold mb-3 text-slate-800 dark:text-stone-100">Today</h2>
 
           {medications.filter((m) => m.type === 'daily').length === 0 && medications.filter((m) => m.type === 'prn').length === 0 ? (
-            <p className="text-sm text-slate-500 mb-4">No medications set up yet.</p>
+            <p className="text-sm text-slate-500 dark:text-stone-400 mb-4">No medications set up yet.</p>
           ) : (
             <>
               {(['morning', 'afternoon', 'night'] as const).map((period) => {
@@ -565,7 +559,7 @@ const lowRepeatMeds = medications.filter(
 
                 return (
                   <div key={period} className="mb-4">
-                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    <h3 className="text-sm font-semibold text-slate-500 dark:text-stone-400 uppercase tracking-wide mb-2">
                       {period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Night'}
                     </h3>
                     <ul className="space-y-2">
@@ -579,37 +573,48 @@ const lowRepeatMeds = medications.filter(
                         return (
                           <li
                             key={med.id}
-                            className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800`}
+                            className={`border border-stone-200 dark:border-stone-700 border-l-4 ${stripeColor(med)} bg-white dark:bg-stone-800 rounded-xl shadow-sm px-4 py-3 text-slate-800 dark:text-stone-100`}
                           >
-                            <p className="font-medium">{med.name}</p>
-                            {med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
-                              {actioned ? (
-  <div className="flex items-center gap-2 mt-2 flex-wrap">
-    <span
-      className={`inline-block text-sm px-3 py-1 rounded-full font-medium ${
-        latest.status === 'taken'
-          ? 'bg-teal-100 text-teal-700'
-          : latest.status === 'skipped'
-          ? 'bg-stone-200 text-stone-600'
-          : 'bg-amber-100 text-amber-700'
-      }`}
-    >
-      {latest.status === 'taken' && 'Done'}
-      {latest.status === 'skipped' && 'Skipped'}
-      {latest.status === 'snoozed' && 'Snoozed (10m)'}
-    </span>
-    {latest.actionedAt && (
-      <span className="text-xs text-slate-400">
-        at {new Date(latest.actionedAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
-      </span>
-    )}
-    {canAct && latest.status === 'taken' && (
-      <button onClick={() => undoDose(med.id)} className="text-xs text-slate-400 underline">
-        Undo
-      </button>
-    )}
-  </div>
-) : canAct ? (
+                            <div className="flex justify-between items-baseline">
+                              <p className="font-medium">{med.name}</p>
+                              {med.reminderTime && (
+                                <p className="text-xs text-slate-400 dark:text-stone-500">
+                                  Scheduled{' '}
+                                  {new Date(`2000-01-01T${med.reminderTime}`).toLocaleTimeString('en-AU', {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            {med.dose && <p className="text-sm text-slate-500 dark:text-stone-400">{med.dose}</p>}
+                            {actioned ? (
+                              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                <span
+                                  className={`inline-block text-sm px-3 py-1 rounded-full font-medium ${
+                                    latest.status === 'taken'
+                                      ? 'bg-teal-100 dark:bg-teal-900 text-teal-700 dark:text-teal-300'
+                                      : latest.status === 'skipped'
+                                      ? 'bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300'
+                                      : 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300'
+                                  }`}
+                                >
+                                  {latest.status === 'taken' && 'Done'}
+                                  {latest.status === 'skipped' && 'Skipped'}
+                                  {latest.status === 'snoozed' && 'Snoozed (10m)'}
+                                </span>
+                                {latest.actionedAt && (
+                                  <span className="text-xs text-slate-400 dark:text-stone-500">
+                                    at {new Date(latest.actionedAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
+                                  </span>
+                                )}
+                                {canAct && (latest.status === 'taken' || latest.status === 'skipped') && (
+                                  <button onClick={() => undoDose(med.id)} className="text-xs text-slate-400 dark:text-stone-500 underline">
+                                    Undo
+                                  </button>
+                                )}
+                              </div>
+                            ) : canAct ? (
                               <div className="flex gap-2 mt-3">
                                 <button
                                   onClick={() => actionDose(med.id, 'taken')}
@@ -639,35 +644,28 @@ const lowRepeatMeds = medications.filter(
                 );
               })}
 
-             {medications.filter((m) => m.type === 'prn').length > 0 && (
+              {medications.filter((m) => m.type === 'prn').length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">As Needed (PRN)</h3>
+                  <h3 className="text-sm font-semibold text-slate-500 dark:text-stone-400 uppercase tracking-wide mb-2">As Needed (PRN)</h3>
                   <ul className="space-y-2">
                     {medications
                       .filter((m) => m.type === 'prn')
                       .map((med) => (
                         <li
                           key={med.id}
-                          className={`border border-stone-200 border-l-4 ${stripeColor(med)} bg-white rounded-xl shadow-sm px-4 py-3 text-slate-800 flex justify-between items-center`}
+                          className={`border border-stone-200 dark:border-stone-700 border-l-4 ${stripeColor(med)} bg-white dark:bg-stone-800 rounded-xl shadow-sm px-4 py-3 text-slate-800 dark:text-stone-100 flex justify-between items-center`}
                         >
                           <div>
-                            <div className="flex justify-between items-baseline">
-  <p className="font-medium">{med.name}</p>
-  {med.reminderTime && (
-    <p className="text-xs text-slate-400">
-      Scheduled {new Date(`2000-01-01T${med.reminderTime}`).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
-    </p>
-  )}
-</div>
-{med.dose && <p className="text-sm text-slate-500">{med.dose}</p>}
+                            <p className="font-medium">{med.name}</p>
+                            {med.dose && <p className="text-sm text-slate-500 dark:text-stone-400">{med.dose}</p>}
                             {todaysPrnCounts[med.id] > 0 && (
-                              <p className="text-sm text-slate-500">Taken {todaysPrnCounts[med.id]}× today</p>
+                              <p className="text-sm text-slate-500 dark:text-stone-400">Taken {todaysPrnCounts[med.id]}× today</p>
                             )}
                           </div>
                           {canAct && (
                             <div className="flex items-center gap-2">
                               {todaysPrnCounts[med.id] > 0 && (
-                                <button onClick={() => undoDose(med.id)} className="text-xs text-slate-400 underline">
+                                <button onClick={() => undoDose(med.id)} className="text-xs text-slate-400 dark:text-stone-500 underline">
                                   Undo
                                 </button>
                               )}
@@ -690,14 +688,14 @@ const lowRepeatMeds = medications.filter(
           <div className="flex justify-between items-center mt-8">
             <button
               onClick={switchUser}
-              className="text-sm font-medium text-slate-500 border border-stone-300 rounded-full px-4 py-2"
+              className="text-sm font-medium text-slate-500 dark:text-stone-400 border border-stone-300 dark:border-stone-600 rounded-full px-4 py-2"
             >
               Switch User
             </button>
             {isManager && (
               <button
                 onClick={() => setTab('manage')}
-                className="text-sm font-medium text-white bg-slate-600 rounded-full px-5 py-2 shadow-sm"
+                className="text-sm font-medium text-white bg-slate-600 dark:bg-slate-700 rounded-full px-5 py-2 shadow-sm"
               >
                 Manage
               </button>
@@ -708,39 +706,33 @@ const lowRepeatMeds = medications.filter(
 
       {tab === 'manage' && isManager && (
         <>
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
-            <h2 className="text-sm font-semibold text-slate-700 mb-3">People</h2>
+          <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm p-4 border border-stone-200 dark:border-stone-700 mb-6">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-stone-200 mb-3">People</h2>
             <ul className="space-y-2">
               {allUsers
                 .filter((u) => u.id === currentUserId || u.managedByUserId === currentUserId)
                 .map((user) => (
-                  <li key={user.id} className="flex justify-between items-center border border-stone-200 rounded-lg px-3 py-2">
+                  <li key={user.id} className="flex justify-between items-center border border-stone-200 dark:border-stone-700 rounded-lg px-3 py-2">
                     {editingUserId === user.id ? (
                       <div className="flex items-center gap-2 flex-1">
                         <input
-                          className="flex-1 border border-stone-300 rounded-lg px-2 py-1 text-slate-800"
+                          className="flex-1 border border-stone-300 dark:border-stone-600 rounded-lg px-2 py-1 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900"
                           value={editingUserName}
                           onChange={(e) => setEditingUserName(e.target.value)}
                           autoFocus
                         />
-                        <button
-                          onClick={() => saveUserName(user.id)}
-                          className="text-sm text-teal-600 font-medium"
-                        >
+                        <button onClick={() => saveUserName(user.id)} className="text-sm text-teal-600 dark:text-teal-400 font-medium">
                           Save
                         </button>
-                        <button
-                          onClick={() => setEditingUserId(null)}
-                          className="text-sm text-slate-400"
-                        >
+                        <button onClick={() => setEditingUserId(null)} className="text-sm text-slate-400 dark:text-stone-500">
                           Cancel
                         </button>
                       </div>
                     ) : (
                       <>
                         <div>
-                          <span className="font-medium text-slate-800">{user.name}</span>
-                          <span className="text-sm text-slate-400 ml-2">({user.role})</span>
+                          <span className="font-medium text-slate-800 dark:text-stone-100">{user.name}</span>
+                          <span className="text-sm text-slate-400 dark:text-stone-500 ml-2">({user.role})</span>
                         </div>
                         <div className="flex items-center gap-3">
                           <button
@@ -748,12 +740,12 @@ const lowRepeatMeds = medications.filter(
                               setEditingUserId(user.id);
                               setEditingUserName(user.name);
                             }}
-                            className="text-sm text-sky-600 font-medium"
+                            className="text-sm text-sky-600 dark:text-sky-400 font-medium"
                           >
                             Rename
                           </button>
                           {user.id !== currentUserId && (
-                            <button onClick={() => removeUser(user.id, user.name)} className="text-sm text-rose-500 font-medium">
+                            <button onClick={() => removeUser(user.id, user.name)} className="text-sm text-rose-500 dark:text-rose-400 font-medium">
                               Remove
                             </button>
                           )}
@@ -764,16 +756,16 @@ const lowRepeatMeds = medications.filter(
                 ))}
             </ul>
 
-            <div className="mt-4 pt-4 border-t border-stone-200">
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Add a new person</h3>
+            <div className="mt-4 pt-4 border-t border-stone-200 dark:border-stone-700">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-stone-200 mb-2">Add a new person</h3>
               <input
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-slate-800"
+                className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 mb-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900"
                 placeholder="Name"
                 value={newUserName}
                 onChange={(e) => setNewUserName(e.target.value)}
               />
               <select
-                className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-slate-800"
+                className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 mb-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900"
                 value={newUserRole}
                 onChange={(e) => setNewUserRole(e.target.value as 'client' | 'manager' | 'guardian')}
               >
@@ -802,11 +794,14 @@ const lowRepeatMeds = medications.filter(
           </div>
 
           {showAddMedication && (
-            <form onSubmit={handleSubmit} className="space-y-4 mb-8 bg-white rounded-xl shadow-sm p-4 border border-stone-200">
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4 mb-8 bg-white dark:bg-stone-800 rounded-xl shadow-sm p-4 border border-stone-200 dark:border-stone-700"
+            >
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Medication name</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Medication name</label>
                 <input
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.name}
                   onChange={(e) => updateField('name', e.target.value)}
                   placeholder="e.g. Paracetamol"
@@ -814,9 +809,9 @@ const lowRepeatMeds = medications.filter(
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Dose</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Dose</label>
                 <input
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.dose}
                   onChange={(e) => updateField('dose', e.target.value)}
                   placeholder="e.g. 500mg"
@@ -824,21 +819,21 @@ const lowRepeatMeds = medications.filter(
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Quantity per dose (e.g. 1, 0.5)</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Quantity per dose (e.g. 1, 0.5)</label>
                 <input
                   type="number"
                   step="0.5"
                   min="0.5"
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.doseQuantity}
                   onChange={(e) => updateField('doseQuantity', e.target.value)}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Form</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Form</label>
                 <select
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.form}
                   onChange={(e) => updateField('form', e.target.value)}
                 >
@@ -851,9 +846,9 @@ const lowRepeatMeds = medications.filter(
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Schedule type</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Schedule type</label>
                 <select
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.type}
                   onChange={(e) => updateField('type', e.target.value as 'daily' | 'prn')}
                 >
@@ -864,9 +859,9 @@ const lowRepeatMeds = medications.filter(
 
               {formData.type === 'daily' && (
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Time of day</label>
+                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Time of day</label>
                   <select
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                     value={formData.timeOfDay}
                     onChange={(e) => updateField('timeOfDay', e.target.value as 'morning' | 'afternoon' | 'night')}
                   >
@@ -879,10 +874,10 @@ const lowRepeatMeds = medications.filter(
 
               {formData.type === 'daily' && (
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Reminder time</label>
+                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Reminder time</label>
                   <input
                     type="time"
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                     value={formData.reminderTime}
                     onChange={(e) => updateField('reminderTime', e.target.value)}
                   />
@@ -890,9 +885,9 @@ const lowRepeatMeds = medications.filter(
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Notes</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Notes</label>
                 <textarea
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.notes}
                   onChange={(e) => updateField('notes', e.target.value)}
                   placeholder="e.g. take with food"
@@ -902,19 +897,19 @@ const lowRepeatMeds = medications.filter(
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Qty on hand</label>
+                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Qty on hand</label>
                   <input
                     type="number"
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                     value={formData.quantityOnHand}
                     onChange={(e) => updateField('quantityOnHand', e.target.value)}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Qty per refill</label>
+                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Qty per refill</label>
                   <input
                     type="number"
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                     value={formData.quantityPerRefill}
                     onChange={(e) => updateField('quantityPerRefill', e.target.value)}
                   />
@@ -922,10 +917,10 @@ const lowRepeatMeds = medications.filter(
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-700">Repeats remaining</label>
+                <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-stone-200">Repeats remaining</label>
                 <input
                   type="number"
-                  className="w-full border border-stone-300 rounded-lg px-3 py-2 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 text-slate-800 dark:text-stone-100 bg-white dark:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-teal-400"
                   value={formData.repeatsRemaining}
                   onChange={(e) => updateField('repeatsRemaining', e.target.value)}
                 />
@@ -939,7 +934,7 @@ const lowRepeatMeds = medications.filter(
                   <button
                     type="button"
                     onClick={cancelEdit}
-                    className="px-3 py-2 rounded-full border border-stone-300 text-slate-700"
+                    className="px-3 py-2 rounded-full border border-stone-300 dark:border-stone-600 text-slate-700 dark:text-stone-200"
                   >
                     Cancel
                   </button>
@@ -953,7 +948,7 @@ const lowRepeatMeds = medications.filter(
             if (list.length === 0) return null;
             return (
               <div key={section} className="mb-6">
-                <h2 className="text-lg font-semibold mb-3 text-slate-800">
+                <h2 className="text-lg font-semibold mb-3 text-slate-800 dark:text-stone-100">
                   {section === 'daily' ? 'Daily Medications' : 'As Needed (PRN)'}
                 </h2>
                 <ul className="space-y-2">
@@ -963,41 +958,41 @@ const lowRepeatMeds = medications.filter(
                     return (
                       <li
                         key={med.id}
-                        className={`border border-stone-200 border-l-4 ${stripeColor(med)} rounded-xl shadow-sm px-4 py-3 text-slate-800 ${
-                          lowRepeats || lowQty ? 'bg-rose-50' : 'bg-white'
+                        className={`border border-stone-200 dark:border-stone-700 border-l-4 ${stripeColor(med)} rounded-xl shadow-sm px-4 py-3 text-slate-800 dark:text-stone-100 ${
+                          lowRepeats || lowQty ? 'bg-rose-50 dark:bg-rose-950' : 'bg-white dark:bg-stone-800'
                         }`}
                       >
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="font-medium">{med.name}</span>
-                            {med.dose && <span className="text-slate-500"> — {med.dose}</span>}
-                            <span className="text-slate-400 text-sm"> ({med.form})</span>
+                            {med.dose && <span className="text-slate-500 dark:text-stone-400"> — {med.dose}</span>}
+                            <span className="text-slate-400 dark:text-stone-500 text-sm"> ({med.form})</span>
                             {section === 'prn' && todaysPrnCounts[med.id] > 0 && (
-                              <span className="text-slate-500 text-sm"> — taken {todaysPrnCounts[med.id]}× today</span>
+                              <span className="text-slate-500 dark:text-stone-400 text-sm"> — taken {todaysPrnCounts[med.id]}× today</span>
                             )}
                             {med.timeOfDay && (
-                              <span className="text-slate-400 text-sm">
+                              <span className="text-slate-400 dark:text-stone-500 text-sm">
                                 {' '}
                                 · {med.timeOfDay === 'morning' ? 'Morning' : med.timeOfDay === 'afternoon' ? 'Afternoon' : 'Night'}
                               </span>
                             )}
-                            {med.notes && <p className="text-sm text-slate-500 mt-1">{med.notes}</p>}
+                            {med.notes && <p className="text-sm text-slate-500 dark:text-stone-400 mt-1">{med.notes}</p>}
                             {(med.quantityOnHand !== null || med.quantityPerRefill !== null) && (
-                              <p className="text-sm text-slate-500">
+                              <p className="text-sm text-slate-500 dark:text-stone-400">
                                 On hand: {med.quantityOnHand ?? '—'} · Per refill: {med.quantityPerRefill ?? '—'}
                               </p>
                             )}
                             {med.repeatsRemaining !== null && (
-                              <p className={`text-sm ${lowRepeats ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
+                              <p className={`text-sm ${lowRepeats ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-stone-400'}`}>
                                 {lowRepeats ? '⚠ ' : ''}Repeats remaining: {med.repeatsRemaining}
                               </p>
                             )}
                           </div>
                           <div className="flex gap-2 shrink-0 ml-2">
-                            <button onClick={() => startEdit(med)} className="text-sm text-sky-600 font-medium">
+                            <button onClick={() => startEdit(med)} className="text-sm text-sky-600 dark:text-sky-400 font-medium">
                               Edit
                             </button>
-                            <button onClick={() => deleteMedication(med.id)} className="text-sm text-rose-500 font-medium">
+                            <button onClick={() => deleteMedication(med.id)} className="text-sm text-rose-500 dark:text-rose-400 font-medium">
                               Delete
                             </button>
                           </div>
@@ -1016,12 +1011,12 @@ const lowRepeatMeds = medications.filter(
         <>
           <button
             onClick={() => setTab('manage')}
-            className="text-sm font-medium text-slate-700 border border-stone-300 rounded-full px-4 py-2 mb-4"
+            className="text-sm font-medium text-slate-700 dark:text-stone-300 border border-stone-300 dark:border-stone-600 rounded-full px-4 py-2 mb-4"
           >
             ← Back to Manage
           </button>
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
-            <h2 className="text-lg font-semibold mb-3 text-slate-800">PRN Usage — Last 7 Days</h2>
+          <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm p-4 border border-stone-200 dark:border-stone-700 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800 dark:text-stone-100">PRN Usage — Last 7 Days</h2>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={getWeeklyPrnData()}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
@@ -1033,27 +1028,27 @@ const lowRepeatMeds = medications.filter(
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-stone-200 mb-6">
-            <h2 className="text-lg font-semibold mb-3 text-slate-800">
+          <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm p-4 border border-stone-200 dark:border-stone-700 mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-slate-800 dark:text-stone-100">
               PRN Usage — {new Date().toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}
             </h2>
             <div className="grid grid-cols-7 gap-1">
               {getMonthlyPrnData().map(({ day, count }) => (
                 <div
                   key={day}
-                  className={`aspect-square rounded flex items-center justify-center text-xs font-medium text-slate-700 ${heatColor(count)}`}
+                  className={`aspect-square rounded flex items-center justify-center text-xs font-medium text-slate-700 dark:text-stone-200 ${heatColor(count)}`}
                   title={`${count} dose${count === 1 ? '' : 's'}`}
                 >
                   {day}
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-2 mt-3 text-xs text-slate-500">
+            <div className="flex items-center gap-2 mt-3 text-xs text-slate-500 dark:text-stone-400">
               <span>Less</span>
-              <div className="w-3 h-3 rounded bg-stone-100" />
-              <div className="w-3 h-3 rounded bg-amber-200" />
-              <div className="w-3 h-3 rounded bg-amber-400" />
-              <div className="w-3 h-3 rounded bg-amber-600" />
+              <div className="w-3 h-3 rounded bg-stone-100 dark:bg-stone-800" />
+              <div className="w-3 h-3 rounded bg-amber-200 dark:bg-amber-900" />
+              <div className="w-3 h-3 rounded bg-amber-400 dark:bg-amber-700" />
+              <div className="w-3 h-3 rounded bg-amber-600 dark:bg-amber-500" />
               <span>More</span>
             </div>
           </div>

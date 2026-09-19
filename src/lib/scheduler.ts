@@ -25,7 +25,6 @@ export async function runReminderCheck() {
       data: { medicationId: med.id, scheduledFor: now, status: 'pending' },
     });
 
-    // Notify the manager AND anyone they manage (clients/guardians linked to this patient)
     const linkedUsers = await prisma.user.findMany({
       where: {
         OR: [{ id: med.userId }, { managedByUserId: med.userId }],
@@ -44,11 +43,12 @@ export async function runReminderCheck() {
     }
   }
 
-  // ----- 2. Alert managers about missed doses -----
-  const cutoff = new Date(now.getTime() - MISSED_DOSE_ALERT_MINUTES * 60 * 1000);
+  // ----- 2. Alert managers about missed doses (only once, in a tight window around the cutoff) -----
+  const cutoffEnd = new Date(now.getTime() - MISSED_DOSE_ALERT_MINUTES * 60 * 1000);
+  const cutoffStart = new Date(cutoffEnd.getTime() - 60 * 1000);
 
   const overdueLogs = await prisma.doseLog.findMany({
-    where: { status: 'pending', scheduledFor: { lte: cutoff, gte: startOfToday } },
+    where: { status: 'pending', scheduledFor: { gt: cutoffStart, lte: cutoffEnd } },
     include: { medication: true },
   });
 
